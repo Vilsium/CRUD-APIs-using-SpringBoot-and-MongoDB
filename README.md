@@ -494,6 +494,26 @@ DELETE /api/players/{id}
 | `runsScored` | Integer | Total runs scored |  
 | `wicketsTaken` | Integer | Total wickets taken |  
 | `catchesTaken` | Integer | Total catches taken |  
+
+### Match  
+  
+| Field | Type | Description |  
+|-------|------|-------------|  
+| `id` | String | Unique identifier |  
+| `venue` | String | Name of the player |  
+| `date` | String | Player role (Batsman, Bowler, All Rounder, Wicket Keeper) |  
+| `firstTeam` | String | Batting style |  
+| `secondTeam` | String | Bowling style |  
+| `status` | String | ID of the team (references Team) |  
+| `result` | Object | Player statistics |  
+  
+### Result (Embedded in Player)  
+  
+| Field | Type | Description |  
+|-------|------|-------------|  
+| `winner` | Integer | Total matches played |  
+| `margin` | Integer | Total runs scored |  
+| `manOfTheMatch` | Integer | Total wickets taken | 
   
 ---  
   
@@ -506,15 +526,20 @@ src/main/java/com/example/tournament_data/
 │   ├── Player.java  
 │   ├── Team.java  
 │   └── Stats.java  
+│   └── Match.java
+│   └── Result.java    
 ├── repository/  
 │   ├── PlayerRepository.java  
 │   └── TeamRepository.java  
+│   └── MatchRepository.java  
 ├── service/  
 │   ├── PlayerService.java  
-│   └── TeamService.java  
+│   └── TeamService.java
+│   └── MatchService.java    
 ├── controller/  
 │   ├── PlayerController.java  
-│   └── TeamController.java  
+│   └── TeamController.java
+│   └── MatchController.java    
 └── dto/  
     ├── ApiResponse.java  
     └── TeamDetailsResponse.java  
