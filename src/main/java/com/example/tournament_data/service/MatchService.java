@@ -5,15 +5,29 @@ import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import com.example.tournament_data.exception.InvalidRequestException;
+import com.example.tournament_data.exception.ResourceNotFoundException;
 import com.example.tournament_data.model.Match;
 import com.example.tournament_data.repository.MatchRepository;
+import com.example.tournament_data.repository.TeamRepository;
 
 @Service
 public class MatchService {
     @Autowired
     private MatchRepository matchRepository;
 
+    @Autowired
+    private TeamRepository teamRepository;
+
     public Match create(Match match) {
+        if (!teamRepository.existsById(match.getFirstTeam())) {
+            throw new InvalidRequestException("firstTeam",
+                    "Team not found with id: " + match.getFirstTeam());
+        }
+        if (!teamRepository.existsById(match.getSecondTeam())) {
+            throw new InvalidRequestException("secondTeam",
+                    "Team not found with id: " + match.getSecondTeam());
+        }
         return matchRepository.save(match);
     }
 
@@ -22,12 +36,25 @@ public class MatchService {
     }
 
     public Match getMatchById(String id) {
-        return matchRepository.findById(id).orElse(null);
+        return matchRepository.findById(id).orElseThrow(() -> {
+            return new ResourceNotFoundException("Match", "id", id);
+        });
     }
 
     public Match updateMatch(String id, Match matchDetails) {
         Match existingMatch = matchRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Match not found with id : " + id));
+                .orElseThrow(() -> {
+                    return new ResourceNotFoundException("Match", "id", id);
+                });
+
+        if (!teamRepository.existsById(matchDetails.getFirstTeam())) {
+            throw new InvalidRequestException("firstTeam",
+                    "Team not found with id: " + matchDetails.getFirstTeam());
+        }
+        if (!teamRepository.existsById(matchDetails.getSecondTeam())) {
+            throw new InvalidRequestException("secondTeam",
+                    "Team not found with id: " + matchDetails.getSecondTeam());
+        }
 
         existingMatch.setVenue(matchDetails.getVenue());
         existingMatch.setDate(matchDetails.getDate());
@@ -41,7 +68,9 @@ public class MatchService {
 
     public Match patchMatch(String id, Match matchDetails) {
         Match existingMatch = matchRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Match not found with id : " + id));
+                .orElseThrow(() -> {
+                    return new ResourceNotFoundException("Match", "id", id);
+                });
 
         if (matchDetails.getVenue() != null) {
             existingMatch.setVenue(matchDetails.getVenue());
@@ -52,10 +81,18 @@ public class MatchService {
         }
 
         if (matchDetails.getFirstTeam() != null) {
+            if (!teamRepository.existsById(matchDetails.getFirstTeam())) {
+                throw new InvalidRequestException("firstTeam",
+                        "Team not found with id: " + matchDetails.getFirstTeam());
+            }
             existingMatch.setFirstTeam(matchDetails.getFirstTeam());
         }
 
         if (matchDetails.getSecondTeam() != null) {
+            if (!teamRepository.existsById(matchDetails.getSecondTeam())) {
+                throw new InvalidRequestException("secondTeam",
+                        "Team not found with id: " + matchDetails.getSecondTeam());
+            }
             existingMatch.setSecondTeam(matchDetails.getSecondTeam());
         }
 
@@ -71,7 +108,9 @@ public class MatchService {
     }
 
     public Match deleteMatch(String id) {
-        Match existingMatch = matchRepository.findById(id).orElse(null);
+        Match existingMatch = matchRepository.findById(id).orElseThrow(() -> {
+            return new ResourceNotFoundException("Match", "id", id);
+        });
         matchRepository.deleteById(id);
         return existingMatch;
     }

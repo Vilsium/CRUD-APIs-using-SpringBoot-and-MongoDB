@@ -4,6 +4,9 @@ import java.util.List;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+
+import com.example.tournament_data.exception.InvalidRequestException;
+import com.example.tournament_data.exception.ResourceNotFoundException;
 import com.example.tournament_data.model.Player;
 import com.example.tournament_data.model.Team;
 import com.example.tournament_data.repository.PlayerRepository;
@@ -22,7 +25,8 @@ public class PlayerService {
         Player savedPlayer = playerRepository.save(player);
 
         if (savedPlayer.getTeamId() != null && !savedPlayer.getTeamId().isEmpty()) {
-            Team team = teamRepository.findById(savedPlayer.getTeamId()).orElse(null);
+            Team team = teamRepository.findById(savedPlayer.getTeamId()).orElseThrow(
+                    () -> new InvalidRequestException("teamId", "Team not found with id: " + savedPlayer.getTeamId()));
             if (!team.getPlayerIds().contains(savedPlayer.getId())) {
                 team.getPlayerIds().add(savedPlayer.getId());
                 teamRepository.save(team);
@@ -37,13 +41,13 @@ public class PlayerService {
     }
 
     public Player getPlayerById(String id) {
-        return playerRepository.findById(id).orElse(null);
+        return playerRepository.findById(id).orElseThrow(() -> new ResourceNotFoundException("Player", "id", id));
     }
 
     public Player updatePlayer(String id, Player playerDetails) {
         // Find existing player
         Player existingPlayer = playerRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Player not found with id: " + id));
+                .orElseThrow(() -> new ResourceNotFoundException("Player", "id", id));
 
         // Update fields
         existingPlayer.setName(playerDetails.getName());
@@ -61,7 +65,7 @@ public class PlayerService {
 
         // Step 1: Find existing player
         Player existingPlayer = playerRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Player not found with id: " + id));
+                .orElseThrow(() -> new ResourceNotFoundException("Player", "id", id));
 
         // Step 2: Update only non-null fields
         if (playerDetails.getName() != null) {
@@ -93,7 +97,8 @@ public class PlayerService {
     }
 
     public Player deletePlayer(String id) {
-        Player existingPlayer = playerRepository.findById(id).orElse(null);
+        Player existingPlayer = playerRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Player", "id", id));
         if (existingPlayer.getTeamId() != null && !existingPlayer.getTeamId().isEmpty()) {
             teamRepository.findById(existingPlayer.getTeamId()).ifPresent(team -> {
 

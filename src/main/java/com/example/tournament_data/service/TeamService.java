@@ -11,6 +11,8 @@ import org.springframework.data.mongodb.core.aggregation.AggregationResults;
 import org.springframework.stereotype.Service;
 
 import com.example.tournament_data.dto.TeamDetailsResponse;
+import com.example.tournament_data.exception.InvalidRequestException;
+import com.example.tournament_data.exception.ResourceNotFoundException;
 import com.example.tournament_data.model.Player;
 import com.example.tournament_data.model.Team;
 import com.example.tournament_data.repository.PlayerRepository;
@@ -30,6 +32,21 @@ public class TeamService {
     private MongoTemplate mongoTemplate;
 
     public Team create(Team team) {
+        // check if captainId is actual player or not
+        if (team.getCaptainId() != null && !team.getCaptainId().isEmpty()) {
+            if (!playerRepository.existsById(team.getCaptainId())) {
+                throw new InvalidRequestException("captainId", "Player not found with id: " + team.getCaptainId());
+            }
+        }
+
+        if(team.getPlayerIds() != null && !team.getPlayerIds().isEmpty()) {
+            for(String playerId : team.getPlayerIds()) {
+                if(!playerRepository.existsById(playerId)) {
+                    throw new InvalidRequestException("playerIds", "Player not found with id: " + playerId);
+                }
+            }
+        }
+
         return teamRepository.save(team);
     }
 
@@ -38,13 +55,13 @@ public class TeamService {
     }
 
     public Team getTeamById(String id) {
-        return teamRepository.findById(id).orElse(null);
+        return teamRepository.findById(id).orElseThrow(() -> new ResourceNotFoundException("Team", "id", id));
     }
 
     public Team updateTeam(String id, Team teamDetails) {
         // first we will find the team
         Team existingTeam = teamRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Team not found with id : " + id));
+                .orElseThrow(() -> new ResourceNotFoundException("Team", "id", id));
 
         existingTeam.setTeamName(teamDetails.getTeamName());
         existingTeam.setHomeGround(teamDetails.getHomeGround());
@@ -59,8 +76,7 @@ public class TeamService {
 
         // Step 1: Find existing team
         Team existingTeam = teamRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Team not found with id: " + id));
-
+                .orElseThrow(() -> new ResourceNotFoundException("Team", "id", id));
         // Step 2: Update only non-null fields
         if (teamDetails.getTeamName() != null) {
             existingTeam.setTeamName(teamDetails.getTeamName());
@@ -87,7 +103,8 @@ public class TeamService {
     }
 
     public Team deleteTeam(String id) {
-        Team existingTeam = teamRepository.findById(id).orElse(null);
+        Team existingTeam = teamRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Team", "id", id));
         List<Player> players = playerRepository.findByTeamId(id);
         for (Player player : players) {
             player.setTeamId(null);
@@ -104,12 +121,13 @@ public class TeamService {
         // 4. save
 
         Team team = teamRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Team not found for id : " + id));
+                .orElseThrow(() -> new ResourceNotFoundException("Team", "id", id));
 
         if (!team.getPlayerIds().contains(playerId))
             team.getPlayerIds().add(playerId);
 
-        Player player = playerRepository.findById(playerId).orElseThrow(() -> new RuntimeException("Player not found"));
+        Player player = playerRepository.findById(playerId)
+                .orElseThrow(() -> new ResourceNotFoundException("Player", "id", playerId));
         player.setTeamId(id);
         playerRepository.save(player);
 
@@ -123,14 +141,15 @@ public class TeamService {
         // 4. save
 
         Team team = teamRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Team not found for id : " + id));
+                .orElseThrow(() -> new ResourceNotFoundException("Team", "id", id));
 
         team.getPlayerIds().remove(playerId);
 
         if (playerId.equals(team.getCaptainId()))
             team.setCaptainId(null);
 
-        Player player = playerRepository.findById(playerId).orElseThrow(() -> new RuntimeException("Player not found"));
+        Player player = playerRepository.findById(playerId)
+                .orElseThrow(() -> new ResourceNotFoundException("Player", "id", playerId));
         player.setTeamId(null);
         playerRepository.save(player);
 
