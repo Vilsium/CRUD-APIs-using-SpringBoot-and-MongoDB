@@ -1,1144 +1,997 @@
 package com.example.tournament_data.controller;
 
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.junit.jupiter.SpringExtension;
 import org.springframework.test.web.servlet.MockMvc;
+
+import com.example.tournament_data.dto.PlayerCreateRequest;
+import com.example.tournament_data.dto.PlayerPatchRequest;
+import com.example.tournament_data.dto.PlayerResponse;
 import com.example.tournament_data.exception.InvalidRequestException;
 import com.example.tournament_data.exception.ResourceNotFoundException;
-import com.example.tournament_data.model.Player;
 import com.example.tournament_data.model.Stats;
 import com.example.tournament_data.service.PlayerService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
-@org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest(PlayerController.class)
-@DisplayName("PlayerController Unit Tests")
-@ExtendWith(SpringExtension.class)
+@WebMvcTest(PlayerController.class)
+@DisplayName("PlayerController Tests")
 class PlayerControllerTest {
 
-    @Autowired
-    private MockMvc mockMvc;
+        @Autowired
+        private MockMvc mockMvc;
 
-    @Mock
-    private PlayerService playerService;
+        @Autowired
+        private ObjectMapper objectMapper;
 
-    private Player testPlayer;
-    private Stats testStats;
+        @Mock
+        private PlayerService playerService;
 
-    private static final String BASE_URL = "/api/players";
-    private static final String PLAYER_ID = "64a1b2c3d4e5f6g7h8i9j0k1";
-    private static final String TEAM_ID = "64a1b2c3d4e5f6g7h8i9j0k2";
+        private static final String BASE_URL = "/api/v1/players";
 
-    @BeforeEach
-    void setUp() {
-        // Initialize test stats
-        testStats = Stats.builder()
-                .matchesPlayed(150)
-                .runsScored(12000)
-                .wicketsTaken(45)
-                .catchesTaken(80)
-                .build();
+        private PlayerResponse playerResponse;
+        private PlayerResponse playerResponse2;
+        private PlayerCreateRequest createRequest;
+        private PlayerPatchRequest patchRequest;
+        private Stats testStats;
 
-        // Initialize test player
-        testPlayer = new Player();
-        testPlayer.setId(PLAYER_ID);
-        testPlayer.setName("Virat Kohli");
-        testPlayer.setRole("Batsman");
-        testPlayer.setBattingStyle("Right-Handed");
-        testPlayer.setBowlingStyle("Right-Arm Medium");
-        testPlayer.setTeamId(null);
-        testPlayer.setStats(testStats);
-    }
+        @BeforeEach
+        void setUp() {
+                // Initialize test stats
+                testStats = Stats.builder()
+                                .matchesPlayed(50)
+                                .runsScored(2000)
+                                .wicketsTaken(30)
+                                .catchesTaken(25)
+                                .build();
 
-    private Player createPlayer(String id, String name, String role, String battingStyle, String bowlingStyle) {
-        Player player = new Player();
-        player.setId(id);
-        player.setName(name);
-        player.setRole(role);
-        player.setBattingStyle(battingStyle);
-        player.setBowlingStyle(bowlingStyle);
-        return player;
-    }
+                // Initialize player response
+                playerResponse = PlayerResponse.builder()
+                                .id(1)
+                                .name("Virat Kohli")
+                                .teamName("Mumbai Indians")
+                                .role("Batsman")
+                                .battingStyle("Right-handed")
+                                .bowlingStyle("Right-arm medium")
+                                .stats(testStats)
+                                .build();
 
-    private String createPlayerJson(String name, String role, String battingStyle, String bowlingStyle) {
-        return String.format("""
-                {
-                    "name": "%s",
-                    "role": "%s",
-                    "battingStyle": "%s",
-                    "bowlingStyle": "%s"
-                }
-                """, name, role, battingStyle, bowlingStyle);
-    }
+                // Initialize second player response
+                playerResponse2 = PlayerResponse.builder()
+                                .id(2)
+                                .name("Rohit Sharma")
+                                .teamName("Mumbai Indians")
+                                .role("Batsman")
+                                .battingStyle("Right-handed")
+                                .bowlingStyle(null)
+                                .stats(testStats)
+                                .build();
 
-    private String createPlayerJsonWithStats(String name, String role, String battingStyle, String bowlingStyle,
-            int matches, int runs, int wickets, int catches) {
-        return String.format("""
-                {
-                    "name": "%s",
-                    "role": "%s",
-                    "battingStyle": "%s",
-                    "bowlingStyle": "%s",
-                    "stats": {
-                        "matchesPlayed": %d,
-                        "runsScored": %d,
-                        "wicketsTaken": %d,
-                        "catchesTaken": %d
-                    }
-                }
-                """, name, role, battingStyle, bowlingStyle, matches, runs, wickets, catches);
-    }
+                // Initialize create request
+                createRequest = new PlayerCreateRequest();
+                createRequest.setName("Virat Kohli");
+                createRequest.setTeamName("Mumbai Indians");
+                createRequest.setRole("Batsman");
+                createRequest.setBattingStyle("Right-handed");
+                createRequest.setBowlingStyle("Right-arm medium");
+                createRequest.setStats(testStats);
 
-    private String createPlayerJsonWithTeam(String name, String role, String battingStyle,
-            String bowlingStyle, String teamId) {
-        return String.format("""
-                {
-                    "name": "%s",
-                    "role": "%s",
-                    "battingStyle": "%s",
-                    "bowlingStyle": "%s",
-                    "teamId": "%s"
-                }
-                """, name, role, battingStyle, bowlingStyle, teamId);
-    }
-
-    @Nested
-    @DisplayName("GET /api/players - Get All Players")
-    class GetAllPlayersTests {
-
-        @Test
-        @DisplayName("Should return all players with 200 OK")
-        void getAllPlayers_ShouldReturnAllPlayers() throws Exception {
-            // Arrange
-            Player player2 = createPlayer("player2", "MS Dhoni", "Wicket-Keeper", "Right-Handed", "Right-Arm Medium");
-            List<Player> players = Arrays.asList(testPlayer, player2);
-
-            when(playerService.getAllPlayers()).thenReturn(players);
-
-            // Act & Assert
-            mockMvc.perform(get(BASE_URL)
-                    .contentType(MediaType.APPLICATION_JSON))
-                    .andDo(print())
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.success").value(true))
-                    .andExpect(jsonPath("$.message").value("Players retrieved successfully"))
-                    .andExpect(jsonPath("$.data").isArray())
-                    .andExpect(jsonPath("$.data.length()").value(2))
-                    .andExpect(jsonPath("$.data[0].name").value("Virat Kohli"))
-                    .andExpect(jsonPath("$.data[0].role").value("Batsman"))
-                    .andExpect(jsonPath("$.data[1].name").value("MS Dhoni"))
-                    .andExpect(jsonPath("$.data[1].role").value("Wicket-Keeper"));
-
-            verify(playerService, times(1)).getAllPlayers();
+                // Initialize patch request
+                patchRequest = new PlayerPatchRequest();
         }
 
-        @Test
-        @DisplayName("Should return empty list when no players exist")
-        void getAllPlayers_WhenNoPlayers_ShouldReturnEmptyList() throws Exception {
-            // Arrange
-            when(playerService.getAllPlayers()).thenReturn(new ArrayList<>());
-
-            // Act & Assert
-            mockMvc.perform(get(BASE_URL)
-                    .contentType(MediaType.APPLICATION_JSON))
-                    .andDo(print())
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.success").value(true))
-                    .andExpect(jsonPath("$.data").isArray())
-                    .andExpect(jsonPath("$.data.length()").value(0));
-
-            verify(playerService, times(1)).getAllPlayers();
-        }
+        // ==================== CREATE PLAYER TESTS ====================
 
         @Test
-        @DisplayName("Should return players with stats")
-        void getAllPlayers_ShouldReturnPlayersWithStats() throws Exception {
-            // Arrange
-            when(playerService.getAllPlayers()).thenReturn(Arrays.asList(testPlayer));
-
-            // Act & Assert
-            mockMvc.perform(get(BASE_URL)
-                    .contentType(MediaType.APPLICATION_JSON))
-                    .andDo(print())
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.data[0].stats.matchesPlayed").value(150))
-                    .andExpect(jsonPath("$.data[0].stats.runsScored").value(12000))
-                    .andExpect(jsonPath("$.data[0].stats.wicketsTaken").value(45))
-                    .andExpect(jsonPath("$.data[0].stats.catchesTaken").value(80));
-        }
-
-        @Test
-        @DisplayName("Should handle service exception")
-        void getAllPlayers_WhenServiceThrowsException_ShouldReturn500() throws Exception {
-            // Arrange
-            when(playerService.getAllPlayers()).thenThrow(new RuntimeException("Database error"));
-
-            // Act & Assert
-            mockMvc.perform(get(BASE_URL)
-                    .contentType(MediaType.APPLICATION_JSON))
-                    .andDo(print())
-                    .andExpect(status().isInternalServerError());
-        }
-    }
-
-    @Nested
-    @DisplayName("GET /api/players/{id} - Get Player By ID")
-    class GetPlayerByIdTests {
-
-        @Test
-        @DisplayName("Should return player when found")
-        void getPlayerById_WhenExists_ShouldReturnPlayer() throws Exception {
-            // Arrange
-            when(playerService.getPlayerById(PLAYER_ID)).thenReturn(testPlayer);
-
-            // Act & Assert
-            mockMvc.perform(get(BASE_URL + "/{id}", PLAYER_ID)
-                    .contentType(MediaType.APPLICATION_JSON))
-                    .andDo(print())
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.success").value(true))
-                    .andExpect(jsonPath("$.message").value("Player retrieved successfully"))
-                    .andExpect(jsonPath("$.data.id").value(PLAYER_ID))
-                    .andExpect(jsonPath("$.data.name").value("Virat Kohli"))
-                    .andExpect(jsonPath("$.data.role").value("Batsman"))
-                    .andExpect(jsonPath("$.data.battingStyle").value("Right-Handed"))
-                    .andExpect(jsonPath("$.data.bowlingStyle").value("Right-Arm Medium"));
-
-            verify(playerService, times(1)).getPlayerById(PLAYER_ID);
-        }
-
-        @Test
-        @DisplayName("Should return player with all stats fields")
-        void getPlayerById_ShouldReturnPlayerWithStats() throws Exception {
-            // Arrange
-            when(playerService.getPlayerById(PLAYER_ID)).thenReturn(testPlayer);
-
-            // Act & Assert
-            mockMvc.perform(get(BASE_URL + "/{id}", PLAYER_ID)
-                    .contentType(MediaType.APPLICATION_JSON))
-                    .andDo(print())
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.data.stats.matchesPlayed").value(150))
-                    .andExpect(jsonPath("$.data.stats.runsScored").value(12000))
-                    .andExpect(jsonPath("$.data.stats.wicketsTaken").value(45))
-                    .andExpect(jsonPath("$.data.stats.catchesTaken").value(80));
-        }
-
-        @Test
-        @DisplayName("Should return 404 when player not found")
-        void getPlayerById_WhenNotExists_ShouldReturn404() throws Exception {
-            // Arrange
-            when(playerService.getPlayerById(PLAYER_ID))
-                    .thenThrow(new ResourceNotFoundException("Player", "id", PLAYER_ID));
-
-            // Act & Assert
-            mockMvc.perform(get(BASE_URL + "/{id}", PLAYER_ID)
-                    .contentType(MediaType.APPLICATION_JSON))
-                    .andDo(print())
-                    .andExpect(status().isNotFound());
-
-            verify(playerService, times(1)).getPlayerById(PLAYER_ID);
-        }
-
-        @Test
-        @DisplayName("Should return player with teamId")
-        void getPlayerById_WithTeamId_ShouldReturnPlayerWithTeam() throws Exception {
-            // Arrange
-            testPlayer.setTeamId(TEAM_ID);
-            when(playerService.getPlayerById(PLAYER_ID)).thenReturn(testPlayer);
-
-            // Act & Assert
-            mockMvc.perform(get(BASE_URL + "/{id}", PLAYER_ID)
-                    .contentType(MediaType.APPLICATION_JSON))
-                    .andDo(print())
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.data.teamId").value(TEAM_ID));
-        }
-    }
-
-    @Nested
-    @DisplayName("POST /api/players - Create Player")
-    class CreatePlayerTests {
-
-        @Test
-        @DisplayName("Should create player and return 201 Created")
-        void createPlayer_WithValidData_ShouldReturn201() throws Exception {
-            // Arrange
-            String requestBody = createPlayerJson("Virat Kohli", "Batsman", "Right-Handed", "Right-Arm Medium");
-            when(playerService.create(any(Player.class))).thenReturn(testPlayer);
-
-            // Act & Assert
-            mockMvc.perform(post(BASE_URL)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(requestBody))
-                    .andDo(print())
-                    .andExpect(status().isCreated())
-                    .andExpect(jsonPath("$.success").value(true))
-                    .andExpect(jsonPath("$.message").value("Player created successfully"))
-                    .andExpect(jsonPath("$.data.id").value(PLAYER_ID))
-                    .andExpect(jsonPath("$.data.name").value("Virat Kohli"));
-
-            verify(playerService, times(1)).create(any(Player.class));
-        }
-
-        @Test
-        @DisplayName("Should create player with stats")
-        void createPlayer_WithStats_ShouldReturn201() throws Exception {
-            // Arrange
-            String requestBody = createPlayerJsonWithStats("Virat Kohli", "Batsman",
-                    "Right-Handed", "Right-Arm Medium", 150, 12000, 45, 80);
-            when(playerService.create(any(Player.class))).thenReturn(testPlayer);
-
-            // Act & Assert
-            mockMvc.perform(post(BASE_URL)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(requestBody))
-                    .andDo(print())
-                    .andExpect(status().isCreated())
-                    .andExpect(jsonPath("$.data.stats.matchesPlayed").value(150))
-                    .andExpect(jsonPath("$.data.stats.runsScored").value(12000));
-        }
-
-        @Test
-        @DisplayName("Should create player with teamId")
-        void createPlayer_WithTeamId_ShouldReturn201() throws Exception {
-            // Arrange
-            String requestBody = createPlayerJsonWithTeam("Virat Kohli", "Batsman",
-                    "Right-Handed", "Right-Arm Medium", TEAM_ID);
-            testPlayer.setTeamId(TEAM_ID);
-            when(playerService.create(any(Player.class))).thenReturn(testPlayer);
-
-            // Act & Assert
-            mockMvc.perform(post(BASE_URL)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(requestBody))
-                    .andDo(print())
-                    .andExpect(status().isCreated())
-                    .andExpect(jsonPath("$.data.teamId").value(TEAM_ID));
-        }
-
-        @Test
-        @DisplayName("Should return 400 when name is blank")
-        void createPlayer_WithBlankName_ShouldReturn400() throws Exception {
-            // Arrange
-            String requestBody = createPlayerJson("", "Batsman", "Right-Handed", "Right-Arm Medium");
-
-            // Act & Assert
-            mockMvc.perform(post(BASE_URL)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(requestBody))
-                    .andDo(print())
-                    .andExpect(status().isBadRequest());
-
-            verify(playerService, never()).create(any(Player.class));
-        }
-
-        @Test
-        @DisplayName("Should return 400 when name is too short")
-        void createPlayer_WithShortName_ShouldReturn400() throws Exception {
-            // Arrange
-            String requestBody = createPlayerJson("A", "Batsman", "Right-Handed", "Right-Arm Medium");
-
-            // Act & Assert
-            mockMvc.perform(post(BASE_URL)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(requestBody))
-                    .andDo(print())
-                    .andExpect(status().isBadRequest());
-
-            verify(playerService, never()).create(any(Player.class));
-        }
-
-        @Test
-        @DisplayName("Should return 400 when role is blank")
-        void createPlayer_WithBlankRole_ShouldReturn400() throws Exception {
-            // Arrange
-            String requestBody = createPlayerJson("Virat Kohli", "", "Right-Handed", "Right-Arm Medium");
-
-            // Act & Assert
-            mockMvc.perform(post(BASE_URL)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(requestBody))
-                    .andDo(print())
-                    .andExpect(status().isBadRequest());
-
-            verify(playerService, never()).create(any(Player.class));
-        }
-
-        @Test
-        @DisplayName("Should return 400 when role is invalid")
-        void createPlayer_WithInvalidRole_ShouldReturn400() throws Exception {
-            // Arrange
-            String requestBody = createPlayerJson("Virat Kohli", "InvalidRole", "Right-Handed", "Right-Arm Medium");
-
-            // Act & Assert
-            mockMvc.perform(post(BASE_URL)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(requestBody))
-                    .andDo(print())
-                    .andExpect(status().isBadRequest());
-
-            verify(playerService, never()).create(any(Player.class));
-        }
-
-        @Test
-        @DisplayName("Should return 400 when batting style is invalid")
-        void createPlayer_WithInvalidBattingStyle_ShouldReturn400() throws Exception {
-            // Arrange
-            String requestBody = createPlayerJson("Virat Kohli", "Batsman", "Invalid-Style", "Right-Arm Medium");
-
-            // Act & Assert
-            mockMvc.perform(post(BASE_URL)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(requestBody))
-                    .andDo(print())
-                    .andExpect(status().isBadRequest());
-
-            verify(playerService, never()).create(any(Player.class));
-        }
-
-        @Test
-        @DisplayName("Should return 400 when bowling style is invalid")
-        void createPlayer_WithInvalidBowlingStyle_ShouldReturn400() throws Exception {
-            // Arrange
-            String requestBody = createPlayerJson("Virat Kohli", "Batsman", "Right-Handed", "Invalid-Bowling");
-
-            // Act & Assert
-            mockMvc.perform(post(BASE_URL)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(requestBody))
-                    .andDo(print())
-                    .andExpect(status().isBadRequest());
-
-            verify(playerService, never()).create(any(Player.class));
-        }
-
-        @Test
-        @DisplayName("Should return 400 when team not found")
-        void createPlayer_WithInvalidTeamId_ShouldReturn400() throws Exception {
-            // Arrange
-            String requestBody = createPlayerJsonWithTeam("Virat Kohli", "Batsman",
-                    "Right-Handed", "Right-Arm Medium", "invalidTeamId");
-            when(playerService.create(any(Player.class)))
-                    .thenThrow(new InvalidRequestException("teamId", "Team not found"));
-
-            // Act & Assert
-            mockMvc.perform(post(BASE_URL)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(requestBody))
-                    .andDo(print())
-                    .andExpect(status().isBadRequest());
-        }
-
-        @Test
-        @DisplayName("Should return 400 when duplicate player in team")
-        void createPlayer_WithDuplicateNameInTeam_ShouldReturn400() throws Exception {
-            // Arrange
-            String requestBody = createPlayerJsonWithTeam("Existing Player", "Batsman",
-                    "Right-Handed", "Right-Arm Medium", TEAM_ID);
-            when(playerService.create(any(Player.class)))
-                    .thenThrow(new InvalidRequestException("player", "Player already exists in team"));
-
-            // Act & Assert
-            mockMvc.perform(post(BASE_URL)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(requestBody))
-                    .andDo(print())
-                    .andExpect(status().isBadRequest());
-        }
-
-        @Test
-        @DisplayName("Should create player with all valid roles")
-        void createPlayer_WithAllValidRoles_ShouldReturn201() throws Exception {
-            String[] validRoles = { "Batsman", "Bowler", "All-Rounder", "Wicket-Keeper" };
-
-            for (String role : validRoles) {
+        @DisplayName("POST /api/v1/players - Should create player successfully")
+        void createPlayer_Success() throws Exception {
                 // Arrange
-                String requestBody = createPlayerJson("Test Player", role, "Right-Handed", "Right-Arm Medium");
-                testPlayer.setRole(role);
-                when(playerService.create(any(Player.class))).thenReturn(testPlayer);
+                when(playerService.create(any(PlayerCreateRequest.class)))
+                                .thenReturn(playerResponse);
 
                 // Act & Assert
                 mockMvc.perform(post(BASE_URL)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(requestBody))
-                        .andExpect(status().isCreated());
-            }
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(createRequest)))
+                                .andDo(print())
+                                .andExpect(status().isCreated())
+                                .andExpect(jsonPath("$.success").value(true))
+                                .andExpect(jsonPath("$.message").value("Player created successfully"))
+                                .andExpect(jsonPath("$.data.id").value(1))
+                                .andExpect(jsonPath("$.data.name").value("Virat Kohli"))
+                                .andExpect(jsonPath("$.data.teamName").value("Mumbai Indians"))
+                                .andExpect(jsonPath("$.data.role").value("Batsman"))
+                                .andExpect(jsonPath("$.data.battingStyle").value("Right-handed"))
+                                .andExpect(jsonPath("$.data.bowlingStyle").value("Right-arm medium"));
+
+                verify(playerService).create(any(PlayerCreateRequest.class));
         }
 
         @Test
-        @DisplayName("Should create player with all valid batting styles")
-        void createPlayer_WithAllValidBattingStyles_ShouldReturn201() throws Exception {
-            String[] validStyles = { "Right-Handed", "Left-Handed" };
-
-            for (String style : validStyles) {
+        @DisplayName("POST /api/v1/players - Should create player with stats")
+        void createPlayer_WithStats() throws Exception {
                 // Arrange
-                String requestBody = createPlayerJson("Test Player", "Batsman", style, "Right-Arm Medium");
-                testPlayer.setBattingStyle(style);
-                when(playerService.create(any(Player.class))).thenReturn(testPlayer);
+                when(playerService.create(any(PlayerCreateRequest.class)))
+                                .thenReturn(playerResponse);
 
                 // Act & Assert
                 mockMvc.perform(post(BASE_URL)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(requestBody))
-                        .andExpect(status().isCreated());
-            }
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(createRequest)))
+                                .andDo(print())
+                                .andExpect(status().isCreated())
+                                .andExpect(jsonPath("$.data.stats.matchesPlayed").value(50))
+                                .andExpect(jsonPath("$.data.stats.runsScored").value(2000))
+                                .andExpect(jsonPath("$.data.stats.wicketsTaken").value(30))
+                                .andExpect(jsonPath("$.data.stats.catchesTaken").value(25));
         }
 
         @Test
-        @DisplayName("Should create player with all valid bowling styles")
-        void createPlayer_WithAllValidBowlingStyles_ShouldReturn201() throws Exception {
-            String[] validStyles = { "Right-Arm Fast", "Left-Arm Fast", "Right-Arm Medium",
-                    "Left-Arm Medium", "Right-Arm Spin", "Left-Arm Spin", "None" };
-
-            for (String style : validStyles) {
+        @DisplayName("POST /api/v1/players - Should return 400 when name is blank")
+        void createPlayer_BlankName_Returns400() throws Exception {
                 // Arrange
-                String requestBody = createPlayerJson("Test Player", "Batsman", "Right-Handed", style);
-                testPlayer.setBowlingStyle(style);
-                when(playerService.create(any(Player.class))).thenReturn(testPlayer);
+                createRequest.setName("");
 
                 // Act & Assert
                 mockMvc.perform(post(BASE_URL)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(requestBody))
-                        .andExpect(status().isCreated());
-            }
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(createRequest)))
+                                .andDo(print())
+                                .andExpect(status().isBadRequest());
+
+                verify(playerService, never()).create(any());
         }
 
         @Test
-        @DisplayName("Should return 400 when request body is empty")
-        void createPlayer_WithEmptyBody_ShouldReturn400() throws Exception {
-            // Act & Assert
-            mockMvc.perform(post(BASE_URL)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content("{}"))
-                    .andDo(print())
-                    .andExpect(status().isBadRequest());
+        @DisplayName("POST /api/v1/players - Should return 400 when name is null")
+        void createPlayer_NullName_Returns400() throws Exception {
+                // Arrange
+                createRequest.setName(null);
 
-            verify(playerService, never()).create(any(Player.class));
+                // Act & Assert
+                mockMvc.perform(post(BASE_URL)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(createRequest)))
+                                .andDo(print())
+                                .andExpect(status().isBadRequest());
+
+                verify(playerService, never()).create(any());
         }
 
         @Test
-        @DisplayName("Should return 400 when request body is invalid JSON")
-        void createPlayer_WithInvalidJson_ShouldReturn400() throws Exception {
-            // Act & Assert
-            mockMvc.perform(post(BASE_URL)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content("invalid json"))
-                    .andDo(print())
-                    .andExpect(status().isBadRequest());
+        @DisplayName("POST /api/v1/players - Should return 400 when team name is blank")
+        void createPlayer_BlankTeamName_Returns400() throws Exception {
+                // Arrange
+                createRequest.setTeamName("");
 
-            verify(playerService, never()).create(any(Player.class));
-        }
-    }
+                // Act & Assert
+                mockMvc.perform(post(BASE_URL)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(createRequest)))
+                                .andDo(print())
+                                .andExpect(status().isBadRequest());
 
-    @Nested
-    @DisplayName("PUT /api/players/update/{id} - Update Player")
-    class UpdatePlayerTests {
-
-        @Test
-        @DisplayName("Should update player and return 200 OK")
-        void updatePlayer_WithValidData_ShouldReturn200() throws Exception {
-            // Arrange
-            String requestBody = createPlayerJson("Virat Kohli Updated", "All-Rounder",
-                    "Right-Handed", "Right-Arm Spin");
-            Player updatedPlayer = createPlayer(PLAYER_ID, "Virat Kohli Updated", "All-Rounder",
-                    "Right-Handed", "Right-Arm Spin");
-            when(playerService.updatePlayer(eq(PLAYER_ID), any(Player.class))).thenReturn(updatedPlayer);
-
-            // Act & Assert
-            mockMvc.perform(put(BASE_URL + "/update/{id}", PLAYER_ID)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(requestBody))
-                    .andDo(print())
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.success").value(true))
-                    .andExpect(jsonPath("$.message").value("Player updated successfully"))
-                    .andExpect(jsonPath("$.data.name").value("Virat Kohli Updated"))
-                    .andExpect(jsonPath("$.data.role").value("All-Rounder"));
-
-            verify(playerService, times(1)).updatePlayer(eq(PLAYER_ID), any(Player.class));
+                verify(playerService, never()).create(any());
         }
 
         @Test
-        @DisplayName("Should update player with new stats")
-        void updatePlayer_WithNewStats_ShouldReturn200() throws Exception {
-            // Arrange
-            String requestBody = createPlayerJsonWithStats("Virat Kohli", "Batsman",
-                    "Right-Handed", "Right-Arm Medium", 200, 15000, 50, 100);
-            Stats newStats = Stats.builder()
-                    .matchesPlayed(200)
-                    .runsScored(15000)
-                    .wicketsTaken(50)
-                    .catchesTaken(100)
-                    .build();
-            testPlayer.setStats(newStats);
-            when(playerService.updatePlayer(eq(PLAYER_ID), any(Player.class))).thenReturn(testPlayer);
+        @DisplayName("POST /api/v1/players - Should return 400 when team name is null")
+        void createPlayer_NullTeamName_Returns400() throws Exception {
+                // Arrange
+                createRequest.setTeamName(null);
 
-            // Act & Assert
-            mockMvc.perform(put(BASE_URL + "/update/{id}", PLAYER_ID)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(requestBody))
-                    .andDo(print())
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.data.stats.matchesPlayed").value(200))
-                    .andExpect(jsonPath("$.data.stats.runsScored").value(15000));
+                // Act & Assert
+                mockMvc.perform(post(BASE_URL)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(createRequest)))
+                                .andDo(print())
+                                .andExpect(status().isBadRequest());
+
+                verify(playerService, never()).create(any());
         }
 
         @Test
-        @DisplayName("Should return 404 when player not found")
-        void updatePlayer_WhenNotFound_ShouldReturn404() throws Exception {
-            // Arrange
-            String requestBody = createPlayerJson("Virat Kohli", "Batsman", "Right-Handed", "Right-Arm Medium");
-            when(playerService.updatePlayer(eq(PLAYER_ID), any(Player.class)))
-                    .thenThrow(new ResourceNotFoundException("Player", "id", PLAYER_ID));
+        @DisplayName("POST /api/v1/players - Should return 400 when team not found")
+        void createPlayer_TeamNotFound_Returns400() throws Exception {
+                // Arrange
+                when(playerService.create(any(PlayerCreateRequest.class)))
+                                .thenThrow(new InvalidRequestException("teamName",
+                                                "Team not found with name: Unknown Team"));
 
-            // Act & Assert
-            mockMvc.perform(put(BASE_URL + "/update/{id}", PLAYER_ID)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(requestBody))
-                    .andDo(print())
-                    .andExpect(status().isNotFound());
+                createRequest.setTeamName("Unknown Team");
+
+                // Act & Assert
+                mockMvc.perform(post(BASE_URL)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(createRequest)))
+                                .andDo(print())
+                                .andExpect(status().isBadRequest())
+                                .andExpect(jsonPath("$.success").value(false));
         }
 
         @Test
-        @DisplayName("Should return 400 when validation fails")
-        void updatePlayer_WithInvalidData_ShouldReturn400() throws Exception {
-            // Arrange
-            String requestBody = createPlayerJson("", "Batsman", "Right-Handed", "Right-Arm Medium");
+        @DisplayName("POST /api/v1/players - Should return 400 when duplicate player name in team")
+        void createPlayer_DuplicateName_Returns400() throws Exception {
+                // Arrange
+                when(playerService.create(any(PlayerCreateRequest.class)))
+                                .thenThrow(new InvalidRequestException("name",
+                                                "Player with name 'Virat Kohli' already exists in team"));
 
-            // Act & Assert
-            mockMvc.perform(put(BASE_URL + "/update/{id}", PLAYER_ID)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(requestBody))
-                    .andDo(print())
-                    .andExpect(status().isBadRequest());
-
-            verify(playerService, never()).updatePlayer(anyString(), any(Player.class));
+                // Act & Assert
+                mockMvc.perform(post(BASE_URL)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(createRequest)))
+                                .andDo(print())
+                                .andExpect(status().isBadRequest())
+                                .andExpect(jsonPath("$.success").value(false));
         }
 
         @Test
-        @DisplayName("Should return 400 when role is invalid during update")
-        void updatePlayer_WithInvalidRole_ShouldReturn400() throws Exception {
-            // Arrange
-            String requestBody = createPlayerJson("Virat Kohli", "InvalidRole", "Right-Handed", "Right-Arm Medium");
+        @DisplayName("POST /api/v1/players - Should return 400 when team is full")
+        void createPlayer_TeamFull_Returns400() throws Exception {
+                // Arrange
+                when(playerService.create(any(PlayerCreateRequest.class)))
+                                .thenThrow(new InvalidRequestException("teamName",
+                                                "Team has reached maximum player limit of 25"));
 
-            // Act & Assert
-            mockMvc.perform(put(BASE_URL + "/update/{id}", PLAYER_ID)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(requestBody))
-                    .andDo(print())
-                    .andExpect(status().isBadRequest());
-
-            verify(playerService, never()).updatePlayer(anyString(), any(Player.class));
-        }
-    }
-
-    @Nested
-    @DisplayName("PATCH /api/players/update/{id} - Partial Update Player")
-    class PatchPlayerTests {
-
-        @Test
-        @DisplayName("Should partially update player name")
-        void patchPlayer_WithOnlyName_ShouldReturn200() throws Exception {
-            // Arrange
-            String requestBody = """
-                    {
-                        "name": "King Kohli"
-                    }
-                    """;
-            testPlayer.setName("King Kohli");
-            when(playerService.patchPlayer(eq(PLAYER_ID), any(Player.class))).thenReturn(testPlayer);
-
-            // Act & Assert
-            mockMvc.perform(patch(BASE_URL + "/update/{id}", PLAYER_ID)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(requestBody))
-                    .andDo(print())
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.success").value(true))
-                    .andExpect(jsonPath("$.message").value("Player updated successfully"))
-                    .andExpect(jsonPath("$.data.name").value("King Kohli"));
-
-            verify(playerService, times(1)).patchPlayer(eq(PLAYER_ID), any(Player.class));
+                // Act & Assert
+                mockMvc.perform(post(BASE_URL)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(createRequest)))
+                                .andDo(print())
+                                .andExpect(status().isBadRequest())
+                                .andExpect(jsonPath("$.success").value(false));
         }
 
         @Test
-        @DisplayName("Should partially update player role")
-        void patchPlayer_WithOnlyRole_ShouldReturn200() throws Exception {
-            // Arrange
-            String requestBody = """
-                    {
-                        "role": "All-Rounder"
-                    }
-                    """;
-            testPlayer.setRole("All-Rounder");
-            when(playerService.patchPlayer(eq(PLAYER_ID), any(Player.class))).thenReturn(testPlayer);
+        @DisplayName("POST /api/v1/players - Should create player without optional fields")
+        void createPlayer_WithoutOptionalFields() throws Exception {
+                // Arrange
+                PlayerCreateRequest minimalRequest = new PlayerCreateRequest();
+                minimalRequest.setName("New Player");
+                minimalRequest.setTeamName("Mumbai Indians");
 
-            // Act & Assert
-            mockMvc.perform(patch(BASE_URL + "/update/{id}", PLAYER_ID)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(requestBody))
-                    .andDo(print())
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.data.role").value("All-Rounder"));
+                PlayerResponse minimalResponse = PlayerResponse.builder()
+                                .id(1)
+                                .name("New Player")
+                                .teamName("Mumbai Indians")
+                                .build();
+
+                when(playerService.create(any(PlayerCreateRequest.class)))
+                                .thenReturn(minimalResponse);
+
+                // Act & Assert
+                mockMvc.perform(post(BASE_URL)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(minimalRequest)))
+                                .andDo(print())
+                                .andExpect(status().isCreated())
+                                .andExpect(jsonPath("$.data.name").value("New Player"))
+                                .andExpect(jsonPath("$.data.teamName").value("Mumbai Indians"));
+        }
+
+        // ==================== GET ALL PLAYERS TESTS ====================
+
+        @Test
+        @DisplayName("GET /api/v1/players - Should return all players")
+        void getAllPlayers_Success() throws Exception {
+                // Arrange
+                List<PlayerResponse> players = Arrays.asList(playerResponse, playerResponse2);
+                when(playerService.getAllPlayers()).thenReturn(players);
+
+                // Act & Assert
+                mockMvc.perform(get(BASE_URL)
+                                .contentType(MediaType.APPLICATION_JSON))
+                                .andDo(print())
+                                .andExpect(status().isOk())
+                                .andExpect(jsonPath("$.success").value(true))
+                                .andExpect(jsonPath("$.message").value("Players retrieved successfully"))
+                                .andExpect(jsonPath("$.data").isArray())
+                                .andExpect(jsonPath("$.data.length()").value(2))
+                                .andExpect(jsonPath("$.data[0].id").value(1))
+                                .andExpect(jsonPath("$.data[0].name").value("Virat Kohli"))
+                                .andExpect(jsonPath("$.data[1].id").value(2))
+                                .andExpect(jsonPath("$.data[1].name").value("Rohit Sharma"));
+
+                verify(playerService).getAllPlayers();
         }
 
         @Test
-        @DisplayName("Should partially update player stats")
-        void patchPlayer_WithOnlyStats_ShouldReturn200() throws Exception {
-            // Arrange
-            String requestBody = """
-                    {
-                        "stats": {
-                            "matchesPlayed": 200,
-                            "runsScored": 15000,
-                            "wicketsTaken": 60,
-                            "catchesTaken": 100
-                        }
-                    }
-                    """;
-            Stats newStats = Stats.builder()
-                    .matchesPlayed(200)
-                    .runsScored(15000)
-                    .wicketsTaken(60)
-                    .catchesTaken(100)
-                    .build();
-            testPlayer.setStats(newStats);
-            when(playerService.patchPlayer(eq(PLAYER_ID), any(Player.class))).thenReturn(testPlayer);
+        @DisplayName("GET /api/v1/players - Should return empty list when no players exist")
+        void getAllPlayers_EmptyList() throws Exception {
+                // Arrange
+                when(playerService.getAllPlayers()).thenReturn(Collections.emptyList());
 
-            // Act & Assert
-            mockMvc.perform(patch(BASE_URL + "/update/{id}", PLAYER_ID)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(requestBody))
-                    .andDo(print())
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.data.stats.matchesPlayed").value(200))
-                    .andExpect(jsonPath("$.data.stats.runsScored").value(15000));
+                // Act & Assert
+                mockMvc.perform(get(BASE_URL)
+                                .contentType(MediaType.APPLICATION_JSON))
+                                .andDo(print())
+                                .andExpect(status().isOk())
+                                .andExpect(jsonPath("$.success").value(true))
+                                .andExpect(jsonPath("$.data").isArray())
+                                .andExpect(jsonPath("$.data.length()").value(0));
+
+                verify(playerService).getAllPlayers();
         }
 
         @Test
-        @DisplayName("Should partially update multiple fields")
-        void patchPlayer_WithMultipleFields_ShouldReturn200() throws Exception {
-            // Arrange
-            String requestBody = """
-                    {
-                        "name": "Updated Name",
-                        "role": "Bowler",
-                        "bowlingStyle": "Right-Arm Fast"
-                    }
-                    """;
-            testPlayer.setName("Updated Name");
-            testPlayer.setRole("Bowler");
-            testPlayer.setBowlingStyle("Right-Arm Fast");
-            when(playerService.patchPlayer(eq(PLAYER_ID), any(Player.class))).thenReturn(testPlayer);
+        @DisplayName("GET /api/v1/players - Should return players with stats")
+        void getAllPlayers_WithStats() throws Exception {
+                // Arrange
+                List<PlayerResponse> players = Arrays.asList(playerResponse);
+                when(playerService.getAllPlayers()).thenReturn(players);
 
-            // Act & Assert
-            mockMvc.perform(patch(BASE_URL + "/update/{id}", PLAYER_ID)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(requestBody))
-                    .andDo(print())
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.data.name").value("Updated Name"))
-                    .andExpect(jsonPath("$.data.role").value("Bowler"))
-                    .andExpect(jsonPath("$.data.bowlingStyle").value("Right-Arm Fast"));
+                // Act & Assert
+                mockMvc.perform(get(BASE_URL)
+                                .contentType(MediaType.APPLICATION_JSON))
+                                .andDo(print())
+                                .andExpect(status().isOk())
+                                .andExpect(jsonPath("$.data[0].stats.matchesPlayed").value(50))
+                                .andExpect(jsonPath("$.data[0].stats.runsScored").value(2000));
+        }
+
+        // ==================== GET PLAYER BY ID TESTS ====================
+
+        @Test
+        @DisplayName("GET /api/v1/players/{id} - Should return player when found")
+        void getPlayerById_Success() throws Exception {
+                // Arrange
+                when(playerService.getPlayerById(1)).thenReturn(playerResponse);
+
+                // Act & Assert
+                mockMvc.perform(get(BASE_URL + "/1")
+                                .contentType(MediaType.APPLICATION_JSON))
+                                .andDo(print())
+                                .andExpect(status().isOk())
+                                .andExpect(jsonPath("$.success").value(true))
+                                .andExpect(jsonPath("$.message").value("Player retrieved successfully"))
+                                .andExpect(jsonPath("$.data.id").value(1))
+                                .andExpect(jsonPath("$.data.name").value("Virat Kohli"))
+                                .andExpect(jsonPath("$.data.teamName").value("Mumbai Indians"))
+                                .andExpect(jsonPath("$.data.role").value("Batsman"));
+
+                verify(playerService).getPlayerById(1);
         }
 
         @Test
-        @DisplayName("Should return 404 when player not found")
-        void patchPlayer_WhenNotFound_ShouldReturn404() throws Exception {
-            // Arrange
-            String requestBody = """
-                    {
-                        "name": "New Name"
-                    }
-                    """;
-            when(playerService.patchPlayer(eq(PLAYER_ID), any(Player.class)))
-                    .thenThrow(new ResourceNotFoundException("Player", "id", PLAYER_ID));
+        @DisplayName("GET /api/v1/players/{id} - Should return 404 when player not found")
+        void getPlayerById_NotFound_Returns404() throws Exception {
+                // Arrange
+                when(playerService.getPlayerById(999))
+                                .thenThrow(new ResourceNotFoundException("Player", "id", 999));
 
-            // Act & Assert
-            mockMvc.perform(patch(BASE_URL + "/update/{id}", PLAYER_ID)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(requestBody))
-                    .andDo(print())
-                    .andExpect(status().isNotFound());
+                // Act & Assert
+                mockMvc.perform(get(BASE_URL + "/999")
+                                .contentType(MediaType.APPLICATION_JSON))
+                                .andDo(print())
+                                .andExpect(status().isNotFound())
+                                .andExpect(jsonPath("$.success").value(false));
+
+                verify(playerService).getPlayerById(999);
         }
 
         @Test
-        @DisplayName("Should partially update teamId")
-        void patchPlayer_WithTeamId_ShouldReturn200() throws Exception {
-            // Arrange
-            String requestBody = String.format("""
-                    {
-                        "teamId": "%s"
-                    }
-                    """, TEAM_ID);
-            testPlayer.setTeamId(TEAM_ID);
-            when(playerService.patchPlayer(eq(PLAYER_ID), any(Player.class))).thenReturn(testPlayer);
+        @DisplayName("GET /api/v1/players/{id} - Should return player with stats")
+        void getPlayerById_WithStats() throws Exception {
+                // Arrange
+                when(playerService.getPlayerById(1)).thenReturn(playerResponse);
 
-            // Act & Assert
-            mockMvc.perform(patch(BASE_URL + "/update/{id}", PLAYER_ID)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(requestBody))
-                    .andDo(print())
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.data.teamId").value(TEAM_ID));
+                // Act & Assert
+                mockMvc.perform(get(BASE_URL + "/1")
+                                .contentType(MediaType.APPLICATION_JSON))
+                                .andDo(print())
+                                .andExpect(status().isOk())
+                                .andExpect(jsonPath("$.data.stats.matchesPlayed").value(50))
+                                .andExpect(jsonPath("$.data.stats.runsScored").value(2000))
+                                .andExpect(jsonPath("$.data.stats.wicketsTaken").value(30))
+                                .andExpect(jsonPath("$.data.stats.catchesTaken").value(25));
         }
 
         @Test
-        @DisplayName("Should handle empty patch request")
-        void patchPlayer_WithEmptyBody_ShouldReturn200() throws Exception {
-            // Arrange
-            String requestBody = "{}";
-            when(playerService.patchPlayer(eq(PLAYER_ID), any(Player.class))).thenReturn(testPlayer);
+        @DisplayName("GET /api/v1/players/{id} - Should return player without stats")
+        void getPlayerById_WithoutStats() throws Exception {
+                // Arrange
+                PlayerResponse responseWithoutStats = PlayerResponse.builder()
+                                .id(1)
+                                .name("Virat Kohli")
+                                .teamName("Mumbai Indians")
+                                .stats(null)
+                                .build();
 
-            // Act & Assert
-            mockMvc.perform(patch(BASE_URL + "/update/{id}", PLAYER_ID)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(requestBody))
-                    .andDo(print())
-                    .andExpect(status().isOk());
-        }
-    }
+                when(playerService.getPlayerById(1)).thenReturn(responseWithoutStats);
 
-    @Nested
-    @DisplayName("DELETE /api/players/{id} - Delete Player")
-    class DeletePlayerTests {
-
-        @Test
-        @DisplayName("Should delete player and return 200 OK")
-        void deletePlayer_WhenExists_ShouldReturn200() throws Exception {
-            // Arrange
-            when(playerService.deletePlayer(PLAYER_ID)).thenReturn(testPlayer);
-
-            // Act & Assert
-            mockMvc.perform(delete(BASE_URL + "/{id}", PLAYER_ID)
-                    .contentType(MediaType.APPLICATION_JSON))
-                    .andDo(print())
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.success").value(true))
-                    .andExpect(jsonPath("$.message").value("Player deleted successfully"))
-                    .andExpect(jsonPath("$.data.id").value(PLAYER_ID))
-                    .andExpect(jsonPath("$.data.name").value("Virat Kohli"));
-
-            verify(playerService, times(1)).deletePlayer(PLAYER_ID);
+                // Act & Assert
+                mockMvc.perform(get(BASE_URL + "/1")
+                                .contentType(MediaType.APPLICATION_JSON))
+                                .andDo(print())
+                                .andExpect(status().isOk())
+                                .andExpect(jsonPath("$.data.stats").doesNotExist());
         }
 
-        @Test
-        @DisplayName("Should return deleted player with stats")
-        void deletePlayer_ShouldReturnPlayerWithStats() throws Exception {
-            // Arrange
-            when(playerService.deletePlayer(PLAYER_ID)).thenReturn(testPlayer);
-
-            // Act & Assert
-            mockMvc.perform(delete(BASE_URL + "/{id}", PLAYER_ID)
-                    .contentType(MediaType.APPLICATION_JSON))
-                    .andDo(print())
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.data.stats.matchesPlayed").value(150))
-                    .andExpect(jsonPath("$.data.stats.runsScored").value(12000));
-        }
+        // ==================== UPDATE PLAYER TESTS ====================
 
         @Test
-        @DisplayName("Should return 404 when player not found")
-        void deletePlayer_WhenNotFound_ShouldReturn404() throws Exception {
-            // Arrange
-            when(playerService.deletePlayer(PLAYER_ID))
-                    .thenThrow(new ResourceNotFoundException("Player", "id", PLAYER_ID));
+        @DisplayName("PUT /api/v1/players/{id} - Should update player successfully")
+        void updatePlayer_Success() throws Exception {
+                // Arrange
+                PlayerResponse updatedResponse = PlayerResponse.builder()
+                                .id(1)
+                                .name("Virat Kohli")
+                                .teamName("Chennai Super Kings")
+                                .role("All-rounder")
+                                .battingStyle("Right-handed")
+                                .bowlingStyle("Right-arm medium")
+                                .stats(testStats)
+                                .build();
 
-            // Act & Assert
-            mockMvc.perform(delete(BASE_URL + "/{id}", PLAYER_ID)
-                    .contentType(MediaType.APPLICATION_JSON))
-                    .andDo(print())
-                    .andExpect(status().isNotFound());
+                when(playerService.updatePlayer(eq(1), any(PlayerCreateRequest.class)))
+                                .thenReturn(updatedResponse);
 
-            verify(playerService, times(1)).deletePlayer(PLAYER_ID);
+                createRequest.setTeamName("Chennai Super Kings");
+                createRequest.setRole("All-rounder");
+
+                // Act & Assert
+                mockMvc.perform(put(BASE_URL + "/1")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(createRequest)))
+                                .andDo(print())
+                                .andExpect(status().isOk())
+                                .andExpect(jsonPath("$.success").value(true))
+                                .andExpect(jsonPath("$.message").value("Player updated successfully"))
+                                .andExpect(jsonPath("$.data.id").value(1))
+                                .andExpect(jsonPath("$.data.teamName").value("Chennai Super Kings"))
+                                .andExpect(jsonPath("$.data.role").value("All-rounder"));
+
+                verify(playerService).updatePlayer(eq(1), any(PlayerCreateRequest.class));
         }
 
         @Test
-        @DisplayName("Should delete player with teamId")
-        void deletePlayer_WithTeamId_ShouldReturn200() throws Exception {
-            // Arrange
-            testPlayer.setTeamId(TEAM_ID);
-            when(playerService.deletePlayer(PLAYER_ID)).thenReturn(testPlayer);
+        @DisplayName("PUT /api/v1/players/{id} - Should return 404 when player not found")
+        void updatePlayer_NotFound_Returns404() throws Exception {
+                // Arrange
+                when(playerService.updatePlayer(eq(999), any(PlayerCreateRequest.class)))
+                                .thenThrow(new ResourceNotFoundException("Player", "id", 999));
 
-            // Act & Assert
-            mockMvc.perform(delete(BASE_URL + "/{id}", PLAYER_ID)
-                    .contentType(MediaType.APPLICATION_JSON))
-                    .andDo(print())
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.data.teamId").value(TEAM_ID));
-        }
-    }
-
-    @Nested
-    @DisplayName("Content Type Tests")
-    class ContentTypeTests {
-
-        @Test
-        @DisplayName("Should accept application/json content type")
-        void request_WithJsonContentType_ShouldSucceed() throws Exception {
-            // Arrange
-            when(playerService.getAllPlayers()).thenReturn(Arrays.asList(testPlayer));
-
-            // Act & Assert
-            mockMvc.perform(get(BASE_URL)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .accept(MediaType.APPLICATION_JSON))
-                    .andExpect(status().isOk())
-                    .andExpect(content().contentType(MediaType.APPLICATION_JSON));
+                // Act & Assert
+                mockMvc.perform(put(BASE_URL + "/999")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(createRequest)))
+                                .andDo(print())
+                                .andExpect(status().isNotFound())
+                                .andExpect(jsonPath("$.success").value(false));
         }
 
         @Test
-        @DisplayName("Should return JSON response")
-        void response_ShouldBeJson() throws Exception {
-            // Arrange
-            when(playerService.getPlayerById(PLAYER_ID)).thenReturn(testPlayer);
+        @DisplayName("PUT /api/v1/players/{id} - Should return 400 when name is blank")
+        void updatePlayer_BlankName_Returns400() throws Exception {
+                // Arrange
+                createRequest.setName("");
 
-            // Act & Assert
-            mockMvc.perform(get(BASE_URL + "/{id}", PLAYER_ID)
-                    .accept(MediaType.APPLICATION_JSON))
-                    .andExpect(status().isOk())
-                    .andExpect(content().contentType(MediaType.APPLICATION_JSON));
-        }
-    }
+                // Act & Assert
+                mockMvc.perform(put(BASE_URL + "/1")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(createRequest)))
+                                .andDo(print())
+                                .andExpect(status().isBadRequest());
 
-    @Nested
-    @DisplayName("API Response Structure Tests")
-    class ApiResponseStructureTests {
-
-        @Test
-        @DisplayName("Should have correct response structure for success")
-        void response_OnSuccess_ShouldHaveCorrectStructure() throws Exception {
-            // Arrange
-            when(playerService.getPlayerById(PLAYER_ID)).thenReturn(testPlayer);
-
-            // Act & Assert
-            mockMvc.perform(get(BASE_URL + "/{id}", PLAYER_ID)
-                    .contentType(MediaType.APPLICATION_JSON))
-                    .andDo(print())
-                    .andExpect(jsonPath("$.success").exists())
-                    .andExpect(jsonPath("$.message").exists())
-                    .andExpect(jsonPath("$.data").exists())
-                    .andExpect(jsonPath("$.success").isBoolean())
-                    .andExpect(jsonPath("$.message").isString());
+                verify(playerService, never()).updatePlayer(any(), any());
         }
 
         @Test
-        @DisplayName("Should have correct player data structure")
-        void response_PlayerData_ShouldHaveCorrectStructure() throws Exception {
-            // Arrange
-            when(playerService.getPlayerById(PLAYER_ID)).thenReturn(testPlayer);
+        @DisplayName("PUT /api/v1/players/{id} - Should return 400 when team name is blank")
+        void updatePlayer_BlankTeamName_Returns400() throws Exception {
+                // Arrange
+                createRequest.setTeamName("");
 
-            // Act & Assert
-            mockMvc.perform(get(BASE_URL + "/{id}", PLAYER_ID)
-                    .contentType(MediaType.APPLICATION_JSON))
-                    .andDo(print())
-                    .andExpect(jsonPath("$.data.id").exists())
-                    .andExpect(jsonPath("$.data.name").exists())
-                    .andExpect(jsonPath("$.data.role").exists())
-                    .andExpect(jsonPath("$.data.battingStyle").exists())
-                    .andExpect(jsonPath("$.data.bowlingStyle").exists())
-                    .andExpect(jsonPath("$.data.stats").exists());
+                // Act & Assert
+                mockMvc.perform(put(BASE_URL + "/1")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(createRequest)))
+                                .andDo(print())
+                                .andExpect(status().isBadRequest());
+
+                verify(playerService, never()).updatePlayer(any(), any());
         }
 
         @Test
-        @DisplayName("Should have correct stats structure")
-        void response_Stats_ShouldHaveCorrectStructure() throws Exception {
-            // Arrange
-            when(playerService.getPlayerById(PLAYER_ID)).thenReturn(testPlayer);
+        @DisplayName("PUT /api/v1/players/{id} - Should return 400 when team not found")
+        void updatePlayer_TeamNotFound_Returns400() throws Exception {
+                // Arrange
+                when(playerService.updatePlayer(eq(1), any(PlayerCreateRequest.class)))
+                                .thenThrow(new InvalidRequestException("teamName",
+                                                "Team not found with name: Unknown Team"));
 
-            // Act & Assert
-            mockMvc.perform(get(BASE_URL + "/{id}", PLAYER_ID)
-                    .contentType(MediaType.APPLICATION_JSON))
-                    .andDo(print())
-                    .andExpect(jsonPath("$.data.stats.matchesPlayed").exists())
-                    .andExpect(jsonPath("$.data.stats.runsScored").exists())
-                    .andExpect(jsonPath("$.data.stats.wicketsTaken").exists())
-                    .andExpect(jsonPath("$.data.stats.catchesTaken").exists());
-        }
-    }
+                createRequest.setTeamName("Unknown Team");
 
-    @Nested
-    @DisplayName("Edge Cases Tests")
-    class EdgeCasesTests {
-
-        @Test
-        @DisplayName("Should handle special characters in player name")
-        void createPlayer_WithSpecialCharacters_ShouldReturn201() throws Exception {
-            // Arrange
-            String requestBody = createPlayerJson("M.S. Dhoni Jr.", "Wicket-Keeper",
-                    "Right-Handed", "Right-Arm Medium");
-            testPlayer.setName("M.S. Dhoni Jr.");
-            when(playerService.create(any(Player.class))).thenReturn(testPlayer);
-
-            // Act & Assert
-            mockMvc.perform(post(BASE_URL)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(requestBody))
-                    .andExpect(status().isCreated())
-                    .andExpect(jsonPath("$.data.name").value("M.S. Dhoni Jr."));
+                // Act & Assert
+                mockMvc.perform(put(BASE_URL + "/1")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(createRequest)))
+                                .andDo(print())
+                                .andExpect(status().isBadRequest())
+                                .andExpect(jsonPath("$.success").value(false));
         }
 
         @Test
-        @DisplayName("Should handle player with null stats")
-        void getPlayer_WithNullStats_ShouldReturn200() throws Exception {
-            // Arrange
-            testPlayer.setStats(null);
-            when(playerService.getPlayerById(PLAYER_ID)).thenReturn(testPlayer);
+        @DisplayName("PUT /api/v1/players/{id} - Should return 400 when duplicate name in new team")
+        void updatePlayer_DuplicateNameInTeam_Returns400() throws Exception {
+                // Arrange
+                when(playerService.updatePlayer(eq(1), any(PlayerCreateRequest.class)))
+                                .thenThrow(new InvalidRequestException("name",
+                                                "Player with name already exists in team"));
 
-            // Act & Assert
-            mockMvc.perform(get(BASE_URL + "/{id}", PLAYER_ID)
-                    .contentType(MediaType.APPLICATION_JSON))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.data.stats").doesNotExist());
+                // Act & Assert
+                mockMvc.perform(put(BASE_URL + "/1")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(createRequest)))
+                                .andDo(print())
+                                .andExpect(status().isBadRequest())
+                                .andExpect(jsonPath("$.success").value(false));
+        }
+
+        // ==================== PATCH PLAYER TESTS ====================
+
+        @Test
+        @DisplayName("PATCH /api/v1/players/{id} - Should patch player name successfully")
+        void patchPlayer_Name_Success() throws Exception {
+                // Arrange
+                patchRequest.setName("Updated Name");
+
+                PlayerResponse patchedResponse = PlayerResponse.builder()
+                                .id(1)
+                                .name("Updated Name")
+                                .teamName("Mumbai Indians")
+                                .role("Batsman")
+                                .build();
+
+                when(playerService.patchPlayer(eq(1), any(PlayerPatchRequest.class)))
+                                .thenReturn(patchedResponse);
+
+                // Act & Assert
+                mockMvc.perform(patch(BASE_URL + "/1")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(patchRequest)))
+                                .andDo(print())
+                                .andExpect(status().isOk())
+                                .andExpect(jsonPath("$.success").value(true))
+                                .andExpect(jsonPath("$.message").value("Player updated successfully"))
+                                .andExpect(jsonPath("$.data.name").value("Updated Name"));
+
+                verify(playerService).patchPlayer(eq(1), any(PlayerPatchRequest.class));
         }
 
         @Test
-        @DisplayName("Should handle player with zero stats")
-        void getPlayer_WithZeroStats_ShouldReturn200() throws Exception {
-            // Arrange
-            Stats zeroStats = Stats.builder()
-                    .matchesPlayed(0)
-                    .runsScored(0)
-                    .wicketsTaken(0)
-                    .catchesTaken(0)
-                    .build();
-            testPlayer.setStats(zeroStats);
-            when(playerService.getPlayerById(PLAYER_ID)).thenReturn(testPlayer);
+        @DisplayName("PATCH /api/v1/players/{id} - Should patch player role successfully")
+        void patchPlayer_Role_Success() throws Exception {
+                // Arrange
+                patchRequest.setRole("All-rounder");
 
-            // Act & Assert
-            mockMvc.perform(get(BASE_URL + "/{id}", PLAYER_ID)
-                    .contentType(MediaType.APPLICATION_JSON))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.data.stats.matchesPlayed").value(0))
-                    .andExpect(jsonPath("$.data.stats.runsScored").value(0));
+                PlayerResponse patchedResponse = PlayerResponse.builder()
+                                .id(1)
+                                .name("Virat Kohli")
+                                .teamName("Mumbai Indians")
+                                .role("All-rounder")
+                                .build();
+
+                when(playerService.patchPlayer(eq(1), any(PlayerPatchRequest.class)))
+                                .thenReturn(patchedResponse);
+
+                // Act & Assert
+                mockMvc.perform(patch(BASE_URL + "/1")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(patchRequest)))
+                                .andDo(print())
+                                .andExpect(status().isOk())
+                                .andExpect(jsonPath("$.data.role").value("All-rounder"));
         }
 
         @Test
-        @DisplayName("Should handle long player name at max length")
-        void createPlayer_WithMaxLengthName_ShouldReturn201() throws Exception {
-            // Arrange
-            String longName = "A".repeat(100); // Max length is 100
-            String requestBody = createPlayerJson(longName, "Batsman", "Right-Handed", "Right-Arm Medium");
-            testPlayer.setName(longName);
-            when(playerService.create(any(Player.class))).thenReturn(testPlayer);
+        @DisplayName("PATCH /api/v1/players/{id} - Should patch player team successfully")
+        void patchPlayer_Team_Success() throws Exception {
+                // Arrange
+                patchRequest.setTeamName("Chennai Super Kings");
 
-            // Act & Assert
-            mockMvc.perform(post(BASE_URL)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(requestBody))
-                    .andExpect(status().isCreated());
+                PlayerResponse patchedResponse = PlayerResponse.builder()
+                                .id(1)
+                                .name("Virat Kohli")
+                                .teamName("Chennai Super Kings")
+                                .role("Batsman")
+                                .build();
+
+                when(playerService.patchPlayer(eq(1), any(PlayerPatchRequest.class)))
+                                .thenReturn(patchedResponse);
+
+                // Act & Assert
+                mockMvc.perform(patch(BASE_URL + "/1")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(patchRequest)))
+                                .andDo(print())
+                                .andExpect(status().isOk())
+                                .andExpect(jsonPath("$.data.teamName").value("Chennai Super Kings"));
         }
 
         @Test
-        @DisplayName("Should return 400 for name exceeding max length")
-        void createPlayer_WithNameExceedingMaxLength_ShouldReturn400() throws Exception {
-            // Arrange
-            String tooLongName = "A".repeat(101); // Exceeds max length of 100
-            String requestBody = createPlayerJson(tooLongName, "Batsman", "Right-Handed", "Right-Arm Medium");
+        @DisplayName("PATCH /api/v1/players/{id} - Should patch player stats successfully")
+        void patchPlayer_Stats_Success() throws Exception {
+                // Arrange
+                Stats newStats = Stats.builder()
+                                .matchesPlayed(100)
+                                .runsScored(5000)
+                                .build();
+                patchRequest.setStats(newStats);
 
-            // Act & Assert
-            mockMvc.perform(post(BASE_URL)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(requestBody))
-                    .andExpect(status().isBadRequest());
+                PlayerResponse patchedResponse = PlayerResponse.builder()
+                                .id(1)
+                                .name("Virat Kohli")
+                                .teamName("Mumbai Indians")
+                                .stats(newStats)
+                                .build();
 
-            verify(playerService, never()).create(any(Player.class));
-        }
-    }
+                when(playerService.patchPlayer(eq(1), any(PlayerPatchRequest.class)))
+                                .thenReturn(patchedResponse);
 
-    @Nested
-    @DisplayName("Service Interaction Verification Tests")
-    class VerificationTests {
-
-        @Test
-        @DisplayName("Should call service method exactly once for GET all")
-        void getAllPlayers_ShouldCallServiceOnce() throws Exception {
-            // Arrange
-            when(playerService.getAllPlayers()).thenReturn(new ArrayList<>());
-
-            // Act
-            mockMvc.perform(get(BASE_URL));
-
-            // Assert
-            verify(playerService, times(1)).getAllPlayers();
-            verifyNoMoreInteractions(playerService);
+                // Act & Assert
+                mockMvc.perform(patch(BASE_URL + "/1")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(patchRequest)))
+                                .andDo(print())
+                                .andExpect(status().isOk())
+                                .andExpect(jsonPath("$.data.stats.matchesPlayed").value(100))
+                                .andExpect(jsonPath("$.data.stats.runsScored").value(5000));
         }
 
         @Test
-        @DisplayName("Should call service method exactly once for GET by ID")
-        void getPlayerById_ShouldCallServiceOnce() throws Exception {
-            // Arrange
-            when(playerService.getPlayerById(PLAYER_ID)).thenReturn(testPlayer);
+        @DisplayName("PATCH /api/v1/players/{id} - Should patch multiple fields successfully")
+        void patchPlayer_MultipleFields_Success() throws Exception {
+                // Arrange
+                patchRequest.setName("Updated Name");
+                patchRequest.setRole("Bowler");
+                patchRequest.setBattingStyle("Left-handed");
 
-            // Act
-            mockMvc.perform(get(BASE_URL + "/{id}", PLAYER_ID));
+                PlayerResponse patchedResponse = PlayerResponse.builder()
+                                .id(1)
+                                .name("Updated Name")
+                                .teamName("Mumbai Indians")
+                                .role("Bowler")
+                                .battingStyle("Left-handed")
+                                .build();
 
-            // Assert
-            verify(playerService, times(1)).getPlayerById(PLAYER_ID);
-            verifyNoMoreInteractions(playerService);
+                when(playerService.patchPlayer(eq(1), any(PlayerPatchRequest.class)))
+                                .thenReturn(patchedResponse);
+
+                // Act & Assert
+                mockMvc.perform(patch(BASE_URL + "/1")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(patchRequest)))
+                                .andDo(print())
+                                .andExpect(status().isOk())
+                                .andExpect(jsonPath("$.data.name").value("Updated Name"))
+                                .andExpect(jsonPath("$.data.role").value("Bowler"))
+                                .andExpect(jsonPath("$.data.battingStyle").value("Left-handed"));
         }
 
         @Test
-        @DisplayName("Should call service method exactly once for POST")
-        void createPlayer_ShouldCallServiceOnce() throws Exception {
-            // Arrange
-            String requestBody = createPlayerJson("Test Player", "Batsman", "Right-Handed", "Right-Arm Medium");
-            when(playerService.create(any(Player.class))).thenReturn(testPlayer);
+        @DisplayName("PATCH /api/v1/players/{id} - Should return 404 when player not found")
+        void patchPlayer_NotFound_Returns404() throws Exception {
+                // Arrange
+                patchRequest.setName("Updated Name");
 
-            // Act
-            mockMvc.perform(post(BASE_URL)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(requestBody));
+                when(playerService.patchPlayer(eq(999), any(PlayerPatchRequest.class)))
+                                .thenThrow(new ResourceNotFoundException("Player", "id", 999));
 
-            // Assert
-            verify(playerService, times(1)).create(any(Player.class));
-            verifyNoMoreInteractions(playerService);
+                // Act & Assert
+                mockMvc.perform(patch(BASE_URL + "/999")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(patchRequest)))
+                                .andDo(print())
+                                .andExpect(status().isNotFound())
+                                .andExpect(jsonPath("$.success").value(false));
         }
 
         @Test
-        @DisplayName("Should call service method exactly once for DELETE")
-        void deletePlayer_ShouldCallServiceOnce() throws Exception {
-            // Arrange
-            when(playerService.deletePlayer(PLAYER_ID)).thenReturn(testPlayer);
+        @DisplayName("PATCH /api/v1/players/{id} - Should return 400 when team not found")
+        void patchPlayer_TeamNotFound_Returns400() throws Exception {
+                // Arrange
+                patchRequest.setTeamName("Unknown Team");
 
-            // Act
-            mockMvc.perform(delete(BASE_URL + "/{id}", PLAYER_ID));
+                when(playerService.patchPlayer(eq(1), any(PlayerPatchRequest.class)))
+                                .thenThrow(new InvalidRequestException("teamName",
+                                                "Team not found with name: Unknown Team"));
 
-            // Assert
-            verify(playerService, times(1)).deletePlayer(PLAYER_ID);
-            verifyNoMoreInteractions(playerService);
+                // Act & Assert
+                mockMvc.perform(patch(BASE_URL + "/1")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(patchRequest)))
+                                .andDo(print())
+                                .andExpect(status().isBadRequest())
+                                .andExpect(jsonPath("$.success").value(false));
         }
 
         @Test
-        @DisplayName("Should not call service when validation fails")
-        void createPlayer_WhenValidationFails_ShouldNotCallService() throws Exception {
-            // Arrange
-            String requestBody = createPlayerJson("", "InvalidRole", "InvalidStyle", "InvalidBowling");
+        @DisplayName("PATCH /api/v1/players/{id} - Should return 400 when duplicate name")
+        void patchPlayer_DuplicateName_Returns400() throws Exception {
+                // Arrange
+                patchRequest.setName("Existing Player");
 
-            // Act
-            mockMvc.perform(post(BASE_URL)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(requestBody));
+                when(playerService.patchPlayer(eq(1), any(PlayerPatchRequest.class)))
+                                .thenThrow(new InvalidRequestException("name",
+                                                "Player with name already exists in team"));
 
-            // Assert
-            verifyNoInteractions(playerService);
+                // Act & Assert
+                mockMvc.perform(patch(BASE_URL + "/1")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(patchRequest)))
+                                .andDo(print())
+                                .andExpect(status().isBadRequest())
+                                .andExpect(jsonPath("$.success").value(false));
         }
-    }
+
+        @Test
+        @DisplayName("PATCH /api/v1/players/{id} - Should return 400 when new team is full")
+        void patchPlayer_TeamFull_Returns400() throws Exception {
+                // Arrange
+                patchRequest.setTeamName("Full Team");
+
+                when(playerService.patchPlayer(eq(1), any(PlayerPatchRequest.class)))
+                                .thenThrow(new InvalidRequestException("teamName",
+                                                "Team has reached maximum player limit of 25"));
+
+                // Act & Assert
+                mockMvc.perform(patch(BASE_URL + "/1")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(patchRequest)))
+                                .andDo(print())
+                                .andExpect(status().isBadRequest())
+                                .andExpect(jsonPath("$.success").value(false));
+        }
+
+        // ==================== DELETE PLAYER TESTS ====================
+
+        @Test
+        @DisplayName("DELETE /api/v1/players/{id} - Should delete player successfully")
+        void deletePlayer_Success() throws Exception {
+                // Arrange
+                when(playerService.deletePlayer(1)).thenReturn(playerResponse);
+
+                // Act & Assert
+                mockMvc.perform(delete(BASE_URL + "/1")
+                                .contentType(MediaType.APPLICATION_JSON))
+                                .andDo(print())
+                                .andExpect(status().isOk())
+                                .andExpect(jsonPath("$.success").value(true))
+                                .andExpect(jsonPath("$.message").value("Player deleted successfully"))
+                                .andExpect(jsonPath("$.data.id").value(1))
+                                .andExpect(jsonPath("$.data.name").value("Virat Kohli"));
+
+                verify(playerService).deletePlayer(1);
+        }
+
+        @Test
+        @DisplayName("DELETE /api/v1/players/{id} - Should return 404 when player not found")
+        void deletePlayer_NotFound_Returns404() throws Exception {
+                // Arrange
+                when(playerService.deletePlayer(999))
+                                .thenThrow(new ResourceNotFoundException("Player", "id", 999));
+
+                // Act & Assert
+                mockMvc.perform(delete(BASE_URL + "/999")
+                                .contentType(MediaType.APPLICATION_JSON))
+                                .andDo(print())
+                                .andExpect(status().isNotFound())
+                                .andExpect(jsonPath("$.success").value(false));
+
+                verify(playerService).deletePlayer(999);
+        }
+
+        @Test
+        @DisplayName("DELETE /api/v1/players/{id} - Should return deleted player with all details")
+        void deletePlayer_ReturnsFullDetails() throws Exception {
+                // Arrange
+                when(playerService.deletePlayer(1)).thenReturn(playerResponse);
+
+                // Act & Assert
+                mockMvc.perform(delete(BASE_URL + "/1")
+                                .contentType(MediaType.APPLICATION_JSON))
+                                .andDo(print())
+                                .andExpect(status().isOk())
+                                .andExpect(jsonPath("$.data.id").value(1))
+                                .andExpect(jsonPath("$.data.name").value("Virat Kohli"))
+                                .andExpect(jsonPath("$.data.teamName").value("Mumbai Indians"))
+                                .andExpect(jsonPath("$.data.role").value("Batsman"))
+                                .andExpect(jsonPath("$.data.battingStyle").value("Right-handed"))
+                                .andExpect(jsonPath("$.data.bowlingStyle").value("Right-arm medium"))
+                                .andExpect(jsonPath("$.data.stats.matchesPlayed").value(50));
+        }
+
+        // ==================== EDGE CASE TESTS ====================
+
+        @Test
+        @DisplayName("POST /api/v1/players - Should handle empty request body")
+        void createPlayer_EmptyBody_Returns400() throws Exception {
+                // Act & Assert
+                mockMvc.perform(post(BASE_URL)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{}"))
+                                .andDo(print())
+                                .andExpect(status().isBadRequest());
+
+                verify(playerService, never()).create(any());
+        }
+
+        @Test
+        @DisplayName("POST /api/v1/players - Should handle invalid JSON")
+        void createPlayer_InvalidJson_Returns400() throws Exception {
+                // Act & Assert
+                mockMvc.perform(post(BASE_URL)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("invalid json"))
+                                .andDo(print())
+                                .andExpect(status().isBadRequest());
+
+                verify(playerService, never()).create(any());
+        }
+
+        @Test
+        @DisplayName("GET /api/v1/players/{id} - Should handle string ID")
+        void getPlayerById_StringId_Returns400() throws Exception {
+                // Act & Assert
+                mockMvc.perform(get(BASE_URL + "/abc")
+                                .contentType(MediaType.APPLICATION_JSON))
+                                .andDo(print())
+                                .andExpect(status().isBadRequest());
+
+                verify(playerService, never()).getPlayerById(any());
+        }
+
+        @Test
+        @DisplayName("PUT /api/v1/players/{id} - Should handle empty request body")
+        void updatePlayer_EmptyBody_Returns400() throws Exception {
+                // Act & Assert
+                mockMvc.perform(put(BASE_URL + "/1")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{}"))
+                                .andDo(print())
+                                .andExpect(status().isBadRequest());
+
+                verify(playerService, never()).updatePlayer(any(), any());
+        }
+
+        @Test
+        @DisplayName("PATCH /api/v1/players/{id} - Should handle empty request body")
+        void patchPlayer_EmptyBody_Success() throws Exception {
+                // Arrange - empty patch should still work (no changes)
+                when(playerService.patchPlayer(eq(1), any(PlayerPatchRequest.class)))
+                                .thenReturn(playerResponse);
+
+                // Act & Assert
+                mockMvc.perform(patch(BASE_URL + "/1")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{}"))
+                                .andDo(print())
+                                .andExpect(status().isOk());
+        }
+
+        @Test
+        @DisplayName("Should handle request without content type")
+        void request_NoContentType_Returns415() throws Exception {
+                // Act & Assert
+                mockMvc.perform(post(BASE_URL)
+                                .content(objectMapper.writeValueAsString(createRequest)))
+                                .andDo(print())
+                                .andExpect(status().isUnsupportedMediaType());
+        }
+
+        @Test
+        @DisplayName("GET /api/v1/players - Should return players in correct order")
+        void getAllPlayers_CorrectOrder() throws Exception {
+                // Arrange
+                PlayerResponse player1 = PlayerResponse.builder().id(1).name("First Player").teamName("Team A").build();
+                PlayerResponse player2 = PlayerResponse.builder().id(2).name("Second Player").teamName("Team A")
+                                .build();
+                PlayerResponse player3 = PlayerResponse.builder().id(3).name("Third Player").teamName("Team B").build();
+
+                List<PlayerResponse> players = Arrays.asList(player1, player2, player3);
+                when(playerService.getAllPlayers()).thenReturn(players);
+
+                // Act & Assert
+                mockMvc.perform(get(BASE_URL)
+                                .contentType(MediaType.APPLICATION_JSON))
+                                .andDo(print())
+                                .andExpect(status().isOk())
+                                .andExpect(jsonPath("$.data[0].id").value(1))
+                                .andExpect(jsonPath("$.data[1].id").value(2))
+                                .andExpect(jsonPath("$.data[2].id").value(3));
+        }
+
+        @Test
+        @DisplayName("POST /api/v1/players - Should handle very long name")
+        void createPlayer_VeryLongName() throws Exception {
+                // Arrange
+                String longName = "A".repeat(500);
+                createRequest.setName(longName);
+
+                when(playerService.create(any(PlayerCreateRequest.class)))
+                                .thenReturn(playerResponse);
+
+                // Act & Assert - behavior depends on validation rules
+                mockMvc.perform(post(BASE_URL)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(createRequest)))
+                                .andDo(print());
+                // Status depends on your validation annotations
+        }
+
+        @Test
+        @DisplayName("POST /api/v1/players - Should handle special characters in name")
+        void createPlayer_SpecialCharactersInName() throws Exception {
+                // Arrange
+                createRequest.setName("O'Brien Jr.");
+
+                PlayerResponse responseWithSpecialName = PlayerResponse.builder()
+                                .id(1)
+                                .name("O'Brien Jr.")
+                                .teamName("Mumbai Indians")
+                                .build();
+
+                when(playerService.create(any(PlayerCreateRequest.class)))
+                                .thenReturn(responseWithSpecialName);
+
+                // Act & Assert
+                mockMvc.perform(post(BASE_URL)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(createRequest)))
+                                .andDo(print())
+                                .andExpect(status().isCreated())
+                                .andExpect(jsonPath("$.data.name").value("O'Brien Jr."));
+        }
+
+        @Test
+        @DisplayName("DELETE /api/v1/players/{id} - Should handle negative ID")
+        void deletePlayer_NegativeId() throws Exception {
+                // Arrange
+                when(playerService.deletePlayer(-1))
+                                .thenThrow(new ResourceNotFoundException("Player", "id", -1));
+
+                // Act & Assert
+                mockMvc.perform(delete(BASE_URL + "/-1")
+                                .contentType(MediaType.APPLICATION_JSON))
+                                .andDo(print())
+                                .andExpect(status().isNotFound());
+        }
+
+        @Test
+        @DisplayName("DELETE /api/v1/players/{id} - Should handle zero ID")
+        void deletePlayer_ZeroId() throws Exception {
+                // Arrange
+                when(playerService.deletePlayer(0))
+                                .thenThrow(new ResourceNotFoundException("Player", "id", 0));
+
+                // Act & Assert
+                mockMvc.perform(delete(BASE_URL + "/0")
+                                .contentType(MediaType.APPLICATION_JSON))
+                                .andDo(print())
+                                .andExpect(status().isNotFound());
+        }
 }

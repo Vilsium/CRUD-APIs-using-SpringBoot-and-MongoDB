@@ -8,7 +8,7 @@ import org.springframework.stereotype.Repository;
 import com.example.tournament_data.model.Match;
 
 @Repository
-public interface MatchRepository extends MongoRepository<Match, String> {
+public interface MatchRepository extends MongoRepository<Match, Integer> {
     List<Match> findByFirstTeam(String firstTeam);
 
     List<Match> findBySecondTeam(String secondTeam);

@@ -1,11 +1,17 @@
 package com.example.tournament_data.service;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -14,10 +20,15 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Captor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.example.tournament_data.dto.PlayerCreateRequest;
+import com.example.tournament_data.dto.PlayerPatchRequest;
+import com.example.tournament_data.dto.PlayerResponse;
 import com.example.tournament_data.exception.InvalidRequestException;
 import com.example.tournament_data.exception.ResourceNotFoundException;
 import com.example.tournament_data.model.Player;
@@ -27,7 +38,7 @@ import com.example.tournament_data.repository.PlayerRepository;
 import com.example.tournament_data.repository.TeamRepository;
 
 @ExtendWith(MockitoExtension.class)
-@DisplayName("PlayerService Unit Tests")
+@DisplayName("PlayerService Tests")
 class PlayerServiceTest {
 
     @Mock
@@ -36,64 +47,61 @@ class PlayerServiceTest {
     @Mock
     private TeamRepository teamRepository;
 
+    @Mock
+    private SequenceGeneratorService sequenceGeneratorService;
+
     @InjectMocks
     private PlayerService playerService;
 
-    private Player testPlayer;
-    private Team testTeam;
-    private Stats testStats;
+    @Captor
+    private ArgumentCaptor<Player> playerCaptor;
 
-    private static final String PLAYER_ID = "64a1b2c3d4e5f6g7h8i9j0k1";
-    private static final String TEAM_ID = "64a1b2c3d4e5f6g7h8i9j0k2";
-    private static final String CAPTAIN_ID = "64a1b2c3d4e5f6g7h8i9j0k3";
+    @Captor
+    private ArgumentCaptor<Team> teamCaptor;
+
+    // Test data
+    private Team testTeam;
+    private Player testPlayer;
+    private PlayerCreateRequest createRequest;
+    private Stats testStats;
 
     @BeforeEach
     void setUp() {
         // Initialize test stats
         testStats = Stats.builder()
-                .matchesPlayed(150)
-                .runsScored(12000)
-                .wicketsTaken(45)
-                .catchesTaken(80)
+                .matchesPlayed(50)
+                .runsScored(2000)
+                .wicketsTaken(30)
+                .catchesTaken(25)
+                .build();
+
+        // Initialize test team
+        testTeam = Team.builder()
+                .id(1)
+                .teamName("Mumbai Indians")
+                .playerIds(new ArrayList<>(Arrays.asList(10, 11, 12)))
+                .captainId(10)
                 .build();
 
         // Initialize test player
-        testPlayer = new Player();
-        testPlayer.setId(PLAYER_ID);
-        testPlayer.setName("Virat Kohli");
-        testPlayer.setRole("Batsman");
-        testPlayer.setBattingStyle("Right-Handed");
-        testPlayer.setBowlingStyle("Right-Arm Medium");
-        testPlayer.setTeamId(null);
-        testPlayer.setStats(testStats);
-
-        // Initialize test team
-        testTeam = new Team();
-        testTeam.setId(TEAM_ID);
-        testTeam.setTeamName("Mumbai Indians");
-        testTeam.setHomeGround("Wankhede Stadium");
-        testTeam.setCoach("Mahela Jayawardene");
-        testTeam.setCaptainId(CAPTAIN_ID);
-        testTeam.setPlayerIds(new ArrayList<>(Arrays.asList("existingPlayer1", "existingPlayer2")));
-    }
-
-    private Player createPlayer(String id, String name, String role, String battingStyle, String bowlingStyle) {
-        Player player = new Player();
-        player.setId(id);
-        player.setName(name);
-        player.setRole(role);
-        player.setBattingStyle(battingStyle);
-        player.setBowlingStyle(bowlingStyle);
-        return player;
-    }
-
-    private Stats createStats(int matches, int runs, int wickets, int catches) {
-        return Stats.builder()
-                .matchesPlayed(matches)
-                .runsScored(runs)
-                .wicketsTaken(wickets)
-                .catchesTaken(catches)
+        testPlayer = Player.builder()
+                .id(100)
+                .name("Virat Kohli")
+                .teamId(1)
+                .role("Batsman")
+                .battingStyle("Right-handed")
+                .bowlingStyle("Right-arm medium")
+                .stats(testStats)
                 .build();
+
+        // Initialize create request
+        createRequest = new PlayerCreateRequest();
+        createRequest.setName("New Player");
+        createRequest.setTeamName("Mumbai Indians");
+        createRequest.setRole("All-rounder");
+        createRequest.setBattingStyle("Left-handed");
+        createRequest.setBowlingStyle("Left-arm spin");
+        createRequest.setStats(testStats);
     }
 
     @Nested
@@ -101,188 +109,180 @@ class PlayerServiceTest {
     class CreatePlayerTests {
 
         @Test
-        @DisplayName("Should create player without team successfully")
-        void create_WithoutTeam_ShouldReturnSavedPlayer() {
+        @DisplayName("Should create player successfully with all fields")
+        void shouldCreatePlayerSuccessfully() {
             // Arrange
-            testPlayer.setTeamId(null);
-            when(playerRepository.save(any(Player.class))).thenReturn(testPlayer);
+            when(teamRepository.findByTeamNameIgnoreCase("Mumbai Indians"))
+                    .thenReturn(Optional.of(testTeam));
+            when(sequenceGeneratorService.generateSequence(Player.SEQUENCE_NAME))
+                    .thenReturn(101);
+            when(playerRepository.save(any(Player.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
+            when(teamRepository.save(any(Team.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
+
+            // Mock existing players in team (none with same name)
+            when(playerRepository.findById(10)).thenReturn(Optional.of(
+                    Player.builder().id(10).name("Player One").build()));
+            when(playerRepository.findById(11)).thenReturn(Optional.of(
+                    Player.builder().id(11).name("Player Two").build()));
+            when(playerRepository.findById(12)).thenReturn(Optional.of(
+                    Player.builder().id(12).name("Player Three").build()));
+
+            // Mock for convertToResponse() method
+            when(teamRepository.findById(1)).thenReturn(Optional.of(testTeam));
 
             // Act
-            Player result = playerService.create(testPlayer);
+            PlayerResponse response = playerService.create(createRequest);
 
             // Assert
-            assertNotNull(result);
-            assertEquals(PLAYER_ID, result.getId());
-            assertEquals("Virat Kohli", result.getName());
-            assertEquals("Batsman", result.getRole());
-            assertEquals("Right-Handed", result.getBattingStyle());
-            assertNull(result.getTeamId());
-            verify(playerRepository, times(1)).save(testPlayer);
-            verify(teamRepository, never()).findById(anyString());
+            assertThat(response).isNotNull();
+            assertThat(response.getId()).isEqualTo(101);
+            assertThat(response.getName()).isEqualTo("New Player");
+            assertThat(response.getTeamName()).isEqualTo("Mumbai Indians");
+            assertThat(response.getRole()).isEqualTo("All-rounder");
+            assertThat(response.getBattingStyle()).isEqualTo("Left-handed");
+            assertThat(response.getBowlingStyle()).isEqualTo("Left-arm spin");
+
+            // Verify player was saved
+            verify(playerRepository).save(playerCaptor.capture());
+            Player savedPlayer = playerCaptor.getValue();
+            assertThat(savedPlayer.getTeamId()).isEqualTo(1);
+
+            // Verify team was updated with new player ID
+            verify(teamRepository).save(teamCaptor.capture());
+            Team savedTeam = teamCaptor.getValue();
+            assertThat(savedTeam.getPlayerIds()).contains(101);
         }
 
         @Test
-        @DisplayName("Should create player with empty teamId successfully")
-        void create_WithEmptyTeamId_ShouldReturnSavedPlayer() {
+        @DisplayName("Should create player with default stats when stats not provided")
+        void shouldCreatePlayerWithDefaultStats() {
             // Arrange
-            testPlayer.setTeamId("");
-            when(playerRepository.save(any(Player.class))).thenReturn(testPlayer);
+            createRequest.setStats(null);
+
+            when(teamRepository.findByTeamNameIgnoreCase("Mumbai Indians"))
+                    .thenReturn(Optional.of(testTeam));
+            when(sequenceGeneratorService.generateSequence(Player.SEQUENCE_NAME))
+                    .thenReturn(101);
+            when(playerRepository.save(any(Player.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
+            when(teamRepository.save(any(Team.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
+
+            // Mock existing players
+            when(playerRepository.findById(anyInt())).thenReturn(Optional.of(
+                    Player.builder().id(1).name("Other Player").build()));
+
+            // Mock for convertToResponse()
+            when(teamRepository.findById(1)).thenReturn(Optional.of(testTeam));
 
             // Act
-            Player result = playerService.create(testPlayer);
+            PlayerResponse response = playerService.create(createRequest);
 
             // Assert
-            assertNotNull(result);
-            verify(teamRepository, never()).findById(anyString());
-            verify(playerRepository, times(1)).save(testPlayer);
-        }
-
-        @Test
-        @DisplayName("Should create player with valid team and add to team's playerIds")
-        void create_WithValidTeam_ShouldAddPlayerToTeam() {
-            // Arrange
-            testPlayer.setTeamId(TEAM_ID);
-            Player savedPlayer = new Player();
-            savedPlayer.setId(PLAYER_ID);
-            savedPlayer.setName("Virat Kohli");
-            savedPlayer.setTeamId(TEAM_ID);
-
-            when(teamRepository.findById(TEAM_ID)).thenReturn(Optional.of(testTeam));
-            when(playerRepository.findById("existingPlayer1")).thenReturn(Optional.of(
-                    createPlayer("existingPlayer1", "Rohit Sharma", "Batsman", "Right-Handed", "Right-Arm Medium")));
-            when(playerRepository.findById("existingPlayer2")).thenReturn(Optional.of(
-                    createPlayer("existingPlayer2", "Jasprit Bumrah", "Bowler", "Right-Handed", "Right-Arm Fast")));
-            when(playerRepository.save(any(Player.class))).thenReturn(savedPlayer);
-            when(teamRepository.save(any(Team.class))).thenReturn(testTeam);
-
-            // Act
-            Player result = playerService.create(testPlayer);
-
-            // Assert
-            assertNotNull(result);
-            assertEquals(PLAYER_ID, result.getId());
-            verify(teamRepository, times(1)).findById(TEAM_ID);
-            verify(teamRepository, times(1)).save(argThat(team -> team.getPlayerIds().contains(PLAYER_ID)));
+            assertThat(response.getStats()).isNotNull();
+            assertThat(response.getStats().getMatchesPlayed()).isEqualTo(0);
+            assertThat(response.getStats().getRunsScored()).isEqualTo(0);
+            assertThat(response.getStats().getWicketsTaken()).isEqualTo(0);
+            assertThat(response.getStats().getCatchesTaken()).isEqualTo(0);
         }
 
         @Test
         @DisplayName("Should throw exception when team not found")
-        void create_WithInvalidTeamId_ShouldThrowException() {
+        void shouldThrowExceptionWhenTeamNotFound() {
             // Arrange
-            testPlayer.setTeamId("invalidTeamId");
-            when(teamRepository.findById("invalidTeamId")).thenReturn(Optional.empty());
+            when(teamRepository.findByTeamNameIgnoreCase("Non-existent Team"))
+                    .thenReturn(Optional.empty());
+
+            createRequest.setTeamName("Non-existent Team");
 
             // Act & Assert
-            InvalidRequestException exception = assertThrows(
-                    InvalidRequestException.class,
-                    () -> playerService.create(testPlayer));
+            assertThatThrownBy(() -> playerService.create(createRequest))
+                    .isInstanceOf(InvalidRequestException.class)
+                    .hasMessageContaining("Team not found");
 
-            assertTrue(exception.getMessage().contains("Team not found") ||
-                    exception.getMessage().contains("invalidTeamId"));
-            verify(playerRepository, never()).save(any(Player.class));
+            verify(playerRepository, never()).save(any());
         }
 
         @Test
         @DisplayName("Should throw exception when player with same name exists in team")
-        void create_WithDuplicateNameInTeam_ShouldThrowException() {
+        void shouldThrowExceptionWhenDuplicatePlayerName() {
             // Arrange
-            testPlayer.setTeamId(TEAM_ID);
-            testPlayer.setName("Rohit Sharma"); // Same name as existing player
+            createRequest.setName("Player One"); // Same name as existing player
 
-            Player existingPlayer = createPlayer("existingPlayer1", "Rohit Sharma", "Batsman", "Right-Handed",
-                    "Right-Arm Medium");
-
-            when(teamRepository.findById(TEAM_ID)).thenReturn(Optional.of(testTeam));
-            when(playerRepository.findById("existingPlayer1")).thenReturn(Optional.of(existingPlayer));
+            when(teamRepository.findByTeamNameIgnoreCase("Mumbai Indians"))
+                    .thenReturn(Optional.of(testTeam));
+            when(playerRepository.findById(10)).thenReturn(Optional.of(
+                    Player.builder().id(10).name("Player One").build()));
 
             // Act & Assert
-            InvalidRequestException exception = assertThrows(
-                    InvalidRequestException.class,
-                    () -> playerService.create(testPlayer));
+            assertThatThrownBy(() -> playerService.create(createRequest))
+                    .isInstanceOf(InvalidRequestException.class)
+                    .hasMessageContaining("already exists in team");
 
-            assertTrue(exception.getMessage().contains("already exists"));
-            verify(playerRepository, never()).save(any(Player.class));
+            verify(playerRepository, never()).save(any());
         }
 
         @Test
-        @DisplayName("Should allow player with same name in different case (case-insensitive check)")
-        void create_WithSameNameDifferentCase_ShouldThrowException() {
+        @DisplayName("Should throw exception when team has reached maximum player limit")
+        void shouldThrowExceptionWhenTeamFull() {
             // Arrange
-            testPlayer.setTeamId(TEAM_ID);
-            testPlayer.setName("rohit sharma"); // Same name but different case
-
-            Player existingPlayer = createPlayer("existingPlayer1", "Rohit Sharma", "Batsman", "Right-Handed",
-                    "Right-Arm Medium");
-
-            when(teamRepository.findById(TEAM_ID)).thenReturn(Optional.of(testTeam));
-            when(playerRepository.findById("existingPlayer1")).thenReturn(Optional.of(existingPlayer));
-
-            // Act & Assert
-            InvalidRequestException exception = assertThrows(
-                    InvalidRequestException.class,
-                    () -> playerService.create(testPlayer));
-
-            assertTrue(exception.getMessage().contains("already exists"));
-        }
-
-        @Test
-        @DisplayName("Should create player with stats")
-        void create_WithStats_ShouldReturnPlayerWithStats() {
-            // Arrange
-            testPlayer.setTeamId(null);
-            testPlayer.setStats(testStats);
-            when(playerRepository.save(any(Player.class))).thenReturn(testPlayer);
-
-            // Act
-            Player result = playerService.create(testPlayer);
-
-            // Assert
-            assertNotNull(result.getStats());
-            assertEquals(150, result.getStats().getMatchesPlayed());
-            assertEquals(12000, result.getStats().getRunsScored());
-            assertEquals(45, result.getStats().getWicketsTaken());
-            assertEquals(80, result.getStats().getCatchesTaken());
-        }
-
-        @Test
-        @DisplayName("Should create player when existing player in team not found")
-        void create_WhenExistingPlayerNotFound_ShouldContinue() {
-            // Arrange
-            testPlayer.setTeamId(TEAM_ID);
-            testPlayer.setName("New Player");
-
-            when(teamRepository.findById(TEAM_ID)).thenReturn(Optional.of(testTeam));
-            when(playerRepository.findById("existingPlayer1")).thenReturn(Optional.empty());
-            when(playerRepository.findById("existingPlayer2")).thenReturn(Optional.empty());
-            when(playerRepository.save(any(Player.class))).thenReturn(testPlayer);
-            when(teamRepository.save(any(Team.class))).thenReturn(testTeam);
-
-            // Act
-            Player result = playerService.create(testPlayer);
-
-            // Assert
-            assertNotNull(result);
-            verify(playerRepository, times(1)).save(testPlayer);
-        }
-
-        @Test
-        @DisplayName("Should create player with all roles")
-        void create_WithDifferentRoles_ShouldCreateSuccessfully() {
-            // Arrange
-            testPlayer.setTeamId(null);
-            String[] roles = { "Batsman", "Bowler", "All-Rounder", "Wicket-Keeper" };
-
-            for (String role : roles) {
-                testPlayer.setRole(role);
-                when(playerRepository.save(any(Player.class))).thenReturn(testPlayer);
-
-                // Act
-                Player result = playerService.create(testPlayer);
-
-                // Assert
-                assertNotNull(result);
-                assertEquals(role, result.getRole());
+            List<Integer> fullPlayerList = new ArrayList<>();
+            for (int i = 1; i <= 25; i++) {
+                fullPlayerList.add(i);
             }
+            testTeam.setPlayerIds(fullPlayerList);
+
+            when(teamRepository.findByTeamNameIgnoreCase("Mumbai Indians"))
+                    .thenReturn(Optional.of(testTeam));
+
+            // Mock existing players (none with same name)
+            when(playerRepository.findById(anyInt())).thenReturn(Optional.of(
+                    Player.builder().id(1).name("Different Name").build()));
+
+            // Act & Assert
+            assertThatThrownBy(() -> playerService.create(createRequest))
+                    .isInstanceOf(InvalidRequestException.class)
+                    .hasMessageContaining("maximum player limit of 25");
+
+            verify(playerRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("Should handle partial stats with null values")
+        void shouldHandlePartialStats() {
+            // Arrange
+            Stats partialStats = Stats.builder()
+                    .matchesPlayed(10)
+                    .runsScored(null)
+                    .wicketsTaken(5)
+                    .catchesTaken(null)
+                    .build();
+            createRequest.setStats(partialStats);
+
+            when(teamRepository.findByTeamNameIgnoreCase("Mumbai Indians"))
+                    .thenReturn(Optional.of(testTeam));
+            when(sequenceGeneratorService.generateSequence(Player.SEQUENCE_NAME))
+                    .thenReturn(101);
+            when(playerRepository.save(any(Player.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
+            when(teamRepository.save(any(Team.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
+            when(playerRepository.findById(anyInt())).thenReturn(Optional.of(
+                    Player.builder().id(1).name("Other").build()));
+
+            // Mock for convertToResponse()
+            when(teamRepository.findById(1)).thenReturn(Optional.of(testTeam));
+
+            // Act
+            PlayerResponse response = playerService.create(createRequest);
+
+            // Assert
+            assertThat(response.getStats().getMatchesPlayed()).isEqualTo(10);
+            assertThat(response.getStats().getRunsScored()).isEqualTo(0);
+            assertThat(response.getStats().getWicketsTaken()).isEqualTo(5);
+            assertThat(response.getStats().getCatchesTaken()).isEqualTo(0);
         }
     }
 
@@ -292,53 +292,67 @@ class PlayerServiceTest {
 
         @Test
         @DisplayName("Should return all players")
-        void getAllPlayers_ShouldReturnAllPlayers() {
+        void shouldReturnAllPlayers() {
             // Arrange
-            Player player2 = createPlayer("player2", "MS Dhoni", "Wicket-Keeper", "Right-Handed", "Right-Arm Medium");
-            player2.setStats(createStats(350, 10000, 0, 150));
+            Player player1 = Player.builder()
+                    .id(1)
+                    .name("Player One")
+                    .teamId(1)
+                    .role("Batsman")
+                    .build();
 
-            List<Player> players = Arrays.asList(testPlayer, player2);
-            when(playerRepository.findAll()).thenReturn(players);
+            Player player2 = Player.builder()
+                    .id(2)
+                    .name("Player Two")
+                    .teamId(1)
+                    .role("Bowler")
+                    .build();
+
+            when(playerRepository.findAll()).thenReturn(Arrays.asList(player1, player2));
+            when(teamRepository.findById(1)).thenReturn(Optional.of(testTeam));
 
             // Act
-            List<Player> result = playerService.getAllPlayers();
+            List<PlayerResponse> responses = playerService.getAllPlayers();
 
             // Assert
-            assertNotNull(result);
-            assertEquals(2, result.size());
-            assertEquals("Virat Kohli", result.get(0).getName());
-            assertEquals("MS Dhoni", result.get(1).getName());
-            verify(playerRepository, times(1)).findAll();
+            assertThat(responses).hasSize(2);
+            assertThat(responses.get(0).getName()).isEqualTo("Player One");
+            assertThat(responses.get(1).getName()).isEqualTo("Player Two");
+            assertThat(responses.get(0).getTeamName()).isEqualTo("Mumbai Indians");
         }
 
         @Test
         @DisplayName("Should return empty list when no players exist")
-        void getAllPlayers_WhenNoPlayers_ShouldReturnEmptyList() {
+        void shouldReturnEmptyListWhenNoPlayers() {
             // Arrange
-            when(playerRepository.findAll()).thenReturn(new ArrayList<>());
+            when(playerRepository.findAll()).thenReturn(Collections.emptyList());
 
             // Act
-            List<Player> result = playerService.getAllPlayers();
+            List<PlayerResponse> responses = playerService.getAllPlayers();
 
             // Assert
-            assertNotNull(result);
-            assertTrue(result.isEmpty());
-            verify(playerRepository, times(1)).findAll();
+            assertThat(responses).isEmpty();
         }
 
         @Test
-        @DisplayName("Should return players with their stats")
-        void getAllPlayers_ShouldReturnPlayersWithStats() {
+        @DisplayName("Should handle player with null teamId")
+        void shouldHandlePlayerWithNullTeamId() {
             // Arrange
-            when(playerRepository.findAll()).thenReturn(Arrays.asList(testPlayer));
+            Player playerWithoutTeam = Player.builder()
+                    .id(1)
+                    .name("Free Agent")
+                    .teamId(null)
+                    .role("Batsman")
+                    .build();
+
+            when(playerRepository.findAll()).thenReturn(Collections.singletonList(playerWithoutTeam));
 
             // Act
-            List<Player> result = playerService.getAllPlayers();
+            List<PlayerResponse> responses = playerService.getAllPlayers();
 
             // Assert
-            assertEquals(1, result.size());
-            assertNotNull(result.get(0).getStats());
-            assertEquals(150, result.get(0).getStats().getMatchesPlayed());
+            assertThat(responses).hasSize(1);
+            assertThat(responses.get(0).getTeamName()).isNull();
         }
     }
 
@@ -348,55 +362,32 @@ class PlayerServiceTest {
 
         @Test
         @DisplayName("Should return player when found")
-        void getPlayerById_WhenExists_ShouldReturnPlayer() {
+        void shouldReturnPlayerWhenFound() {
             // Arrange
-            when(playerRepository.findById(PLAYER_ID)).thenReturn(Optional.of(testPlayer));
+            when(playerRepository.findById(100)).thenReturn(Optional.of(testPlayer));
+            when(teamRepository.findById(1)).thenReturn(Optional.of(testTeam));
 
             // Act
-            Player result = playerService.getPlayerById(PLAYER_ID);
+            PlayerResponse response = playerService.getPlayerById(100);
 
             // Assert
-            assertNotNull(result);
-            assertEquals(PLAYER_ID, result.getId());
-            assertEquals("Virat Kohli", result.getName());
-            assertEquals("Batsman", result.getRole());
-            assertEquals("Right-Handed", result.getBattingStyle());
-            assertEquals("Right-Arm Medium", result.getBowlingStyle());
-            assertNotNull(result.getStats());
-            verify(playerRepository, times(1)).findById(PLAYER_ID);
+            assertThat(response).isNotNull();
+            assertThat(response.getId()).isEqualTo(100);
+            assertThat(response.getName()).isEqualTo("Virat Kohli");
+            assertThat(response.getTeamName()).isEqualTo("Mumbai Indians");
+            assertThat(response.getRole()).isEqualTo("Batsman");
         }
 
         @Test
-        @DisplayName("Should throw exception when player not found")
-        void getPlayerById_WhenNotExists_ShouldThrowException() {
+        @DisplayName("Should throw ResourceNotFoundException when player not found")
+        void shouldThrowExceptionWhenPlayerNotFound() {
             // Arrange
-            when(playerRepository.findById(PLAYER_ID)).thenReturn(Optional.empty());
+            when(playerRepository.findById(999)).thenReturn(Optional.empty());
 
             // Act & Assert
-            ResourceNotFoundException exception = assertThrows(
-                    ResourceNotFoundException.class,
-                    () -> playerService.getPlayerById(PLAYER_ID));
-
-            assertTrue(exception.getMessage().contains("Player") ||
-                    exception.getMessage().contains(PLAYER_ID));
-            verify(playerRepository, times(1)).findById(PLAYER_ID);
-        }
-
-        @Test
-        @DisplayName("Should return player with all stats fields")
-        void getPlayerById_ShouldReturnPlayerWithAllStatsFields() {
-            // Arrange
-            when(playerRepository.findById(PLAYER_ID)).thenReturn(Optional.of(testPlayer));
-
-            // Act
-            Player result = playerService.getPlayerById(PLAYER_ID);
-
-            // Assert
-            assertNotNull(result.getStats());
-            assertEquals(150, result.getStats().getMatchesPlayed());
-            assertEquals(12000, result.getStats().getRunsScored());
-            assertEquals(45, result.getStats().getWicketsTaken());
-            assertEquals(80, result.getStats().getCatchesTaken());
+            assertThatThrownBy(() -> playerService.getPlayerById(999))
+                    .isInstanceOf(ResourceNotFoundException.class)
+                    .hasMessageContaining("Player");
         }
     }
 
@@ -405,121 +396,189 @@ class PlayerServiceTest {
     class UpdatePlayerTests {
 
         @Test
-        @DisplayName("Should update player successfully with all fields")
-        void updatePlayer_WithAllFields_ShouldReturnUpdatedPlayer() {
+        @DisplayName("Should update player successfully without team change")
+        void shouldUpdatePlayerSuccessfully() {
             // Arrange
-            Player updatedDetails = new Player();
-            updatedDetails.setName("Virat Kohli Updated");
-            updatedDetails.setRole("All-Rounder");
-            updatedDetails.setBattingStyle("Left-Handed");
-            updatedDetails.setBowlingStyle("Right-Arm Spin");
-            updatedDetails.setTeamId(TEAM_ID);
-            updatedDetails.setStats(createStats(200, 15000, 50, 100));
+            when(playerRepository.findById(100)).thenReturn(Optional.of(testPlayer));
+            when(teamRepository.findByTeamNameIgnoreCase("Mumbai Indians"))
+                    .thenReturn(Optional.of(testTeam));
+            when(playerRepository.save(any(Player.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
+            when(teamRepository.findById(1)).thenReturn(Optional.of(testTeam));
 
-            when(playerRepository.findById(PLAYER_ID)).thenReturn(Optional.of(testPlayer));
-            when(playerRepository.save(any(Player.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            createRequest.setName("Updated Name");
+            createRequest.setRole("Wicket-keeper");
 
             // Act
-            Player result = playerService.updatePlayer(PLAYER_ID, updatedDetails);
+            PlayerResponse response = playerService.updatePlayer(100, createRequest);
 
             // Assert
-            assertNotNull(result);
-            assertEquals("Virat Kohli Updated", result.getName());
-            assertEquals("All-Rounder", result.getRole());
-            assertEquals("Left-Handed", result.getBattingStyle());
-            assertEquals("Right-Arm Spin", result.getBowlingStyle());
-            assertEquals(TEAM_ID, result.getTeamId());
-            assertEquals(200, result.getStats().getMatchesPlayed());
-            assertEquals(15000, result.getStats().getRunsScored());
-            verify(playerRepository, times(1)).save(any(Player.class));
+            assertThat(response.getName()).isEqualTo("Updated Name");
+            assertThat(response.getRole()).isEqualTo("Wicket-keeper");
+            verify(playerRepository).save(any(Player.class));
         }
 
         @Test
-        @DisplayName("Should throw exception when updating non-existent player")
-        void updatePlayer_WhenPlayerNotExists_ShouldThrowException() {
+        @DisplayName("Should handle team transfer on update")
+        void shouldHandleTeamTransfer() {
             // Arrange
-            when(playerRepository.findById(PLAYER_ID)).thenReturn(Optional.empty());
+            Team newTeam = Team.builder()
+                    .id(2)
+                    .teamName("Chennai Super Kings")
+                    .playerIds(new ArrayList<>())
+                    .captainId(null)
+                    .build();
+
+            // Player currently in team 1, moving to team 2
+            testPlayer.setTeamId(1);
+            testTeam.getPlayerIds().add(100); // Player is in old team
+
+            when(playerRepository.findById(100)).thenReturn(Optional.of(testPlayer));
+            when(teamRepository.findByTeamNameIgnoreCase("Chennai Super Kings"))
+                    .thenReturn(Optional.of(newTeam));
+            when(teamRepository.findById(1)).thenReturn(Optional.of(testTeam));
+            when(teamRepository.findById(2)).thenReturn(Optional.of(newTeam));
+            when(playerRepository.save(any(Player.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
+            when(teamRepository.save(any(Team.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
+
+            createRequest.setTeamName("Chennai Super Kings");
+
+            // Act
+            PlayerResponse response = playerService.updatePlayer(100, createRequest);
+
+            // Assert
+            assertThat(response.getTeamName()).isEqualTo("Chennai Super Kings");
+
+            // Verify old team was updated (player removed)
+            verify(teamRepository, times(2)).save(teamCaptor.capture());
+            List<Team> savedTeams = teamCaptor.getAllValues();
+
+            // Find the old team save
+            boolean oldTeamUpdated = savedTeams.stream()
+                    .anyMatch(t -> t.getId().equals(1) && !t.getPlayerIds().contains(100));
+            assertThat(oldTeamUpdated).isTrue();
+        }
+
+        @Test
+        @DisplayName("Should clear captain when transferred player was captain")
+        void shouldClearCaptainOnTransfer() {
+            // Arrange
+            testTeam.setCaptainId(100); // Player is captain
+            testTeam.getPlayerIds().add(100);
+
+            Team newTeam = Team.builder()
+                    .id(2)
+                    .teamName("Chennai Super Kings")
+                    .playerIds(new ArrayList<>())
+                    .build();
+
+            when(playerRepository.findById(100)).thenReturn(Optional.of(testPlayer));
+            when(teamRepository.findByTeamNameIgnoreCase("Chennai Super Kings"))
+                    .thenReturn(Optional.of(newTeam));
+            when(teamRepository.findById(1)).thenReturn(Optional.of(testTeam));
+            when(teamRepository.findById(2)).thenReturn(Optional.of(newTeam));
+            when(playerRepository.save(any(Player.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
+            when(teamRepository.save(any(Team.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
+
+            createRequest.setTeamName("Chennai Super Kings");
+
+            // Act
+            playerService.updatePlayer(100, createRequest);
+
+            // Assert - verify captain was cleared
+            verify(teamRepository, times(2)).save(teamCaptor.capture());
+            Team oldTeamSaved = teamCaptor.getAllValues().stream()
+                    .filter(t -> t.getId().equals(1))
+                    .findFirst()
+                    .orElse(null);
+
+            assertThat(oldTeamSaved).isNotNull();
+            assertThat(oldTeamSaved.getCaptainId()).isNull();
+        }
+
+        @Test
+        @DisplayName("Should throw exception when new team not found")
+        void shouldThrowExceptionWhenNewTeamNotFound() {
+            // Arrange
+            when(playerRepository.findById(100)).thenReturn(Optional.of(testPlayer));
+            when(teamRepository.findByTeamNameIgnoreCase("Non-existent Team"))
+                    .thenReturn(Optional.empty());
+
+            createRequest.setTeamName("Non-existent Team");
 
             // Act & Assert
-            ResourceNotFoundException exception = assertThrows(
-                    ResourceNotFoundException.class,
-                    () -> playerService.updatePlayer(PLAYER_ID, testPlayer));
-
-            assertTrue(exception.getMessage().contains("Player"));
-            verify(playerRepository, never()).save(any(Player.class));
+            assertThatThrownBy(() -> playerService.updatePlayer(100, createRequest))
+                    .isInstanceOf(InvalidRequestException.class)
+                    .hasMessageContaining("Team not found");
         }
 
         @Test
-        @DisplayName("Should update player role from Batsman to Bowler")
-        void updatePlayer_ChangeRole_ShouldUpdateSuccessfully() {
+        @DisplayName("Should throw exception on duplicate name in new team")
+        void shouldThrowExceptionOnDuplicateNameInNewTeam() {
             // Arrange
-            Player updatedDetails = new Player();
-            updatedDetails.setName("Jasprit Bumrah");
-            updatedDetails.setRole("Bowler");
-            updatedDetails.setBattingStyle("Right-Handed");
-            updatedDetails.setBowlingStyle("Right-Arm Fast");
-            updatedDetails.setTeamId(null);
-            updatedDetails.setStats(createStats(100, 50, 150, 20));
+            Team newTeam = Team.builder()
+                    .id(2)
+                    .teamName("Chennai Super Kings")
+                    .playerIds(new ArrayList<>(Arrays.asList(200)))
+                    .build();
 
-            when(playerRepository.findById(PLAYER_ID)).thenReturn(Optional.of(testPlayer));
-            when(playerRepository.save(any(Player.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            Player existingPlayerInNewTeam = Player.builder()
+                    .id(200)
+                    .name("Updated Name")
+                    .teamId(2)
+                    .build();
 
-            // Act
-            Player result = playerService.updatePlayer(PLAYER_ID, updatedDetails);
+            // Only mock what's actually needed before exception is thrown
+            when(playerRepository.findById(100)).thenReturn(Optional.of(testPlayer));
+            when(teamRepository.findByTeamNameIgnoreCase("Chennai Super Kings"))
+                    .thenReturn(Optional.of(newTeam));
+            when(playerRepository.findById(200)).thenReturn(Optional.of(existingPlayerInNewTeam));
 
-            // Assert
-            assertEquals("Bowler", result.getRole());
-            assertEquals("Right-Arm Fast", result.getBowlingStyle());
-            assertEquals(150, result.getStats().getWicketsTaken());
+            createRequest.setTeamName("Chennai Super Kings");
+            createRequest.setName("Updated Name");
+
+            // Act & Assert
+            assertThatThrownBy(() -> playerService.updatePlayer(100, createRequest))
+                    .isInstanceOf(InvalidRequestException.class)
+                    .hasMessageContaining("already exists in team");
         }
 
         @Test
-        @DisplayName("Should update player stats")
-        void updatePlayer_UpdateStats_ShouldUpdateAllStatsFields() {
+        @DisplayName("Should throw exception when player not found for update")
+        void shouldThrowExceptionWhenPlayerNotFoundForUpdate() {
             // Arrange
-            Stats newStats = createStats(300, 20000, 100, 150);
-            Player updatedDetails = new Player();
-            updatedDetails.setName(testPlayer.getName());
-            updatedDetails.setRole(testPlayer.getRole());
-            updatedDetails.setBattingStyle(testPlayer.getBattingStyle());
-            updatedDetails.setBowlingStyle(testPlayer.getBowlingStyle());
-            updatedDetails.setTeamId(testPlayer.getTeamId());
-            updatedDetails.setStats(newStats);
+            when(playerRepository.findById(999)).thenReturn(Optional.empty());
 
-            when(playerRepository.findById(PLAYER_ID)).thenReturn(Optional.of(testPlayer));
-            when(playerRepository.save(any(Player.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-            // Act
-            Player result = playerService.updatePlayer(PLAYER_ID, updatedDetails);
-
-            // Assert
-            assertNotNull(result.getStats());
-            assertEquals(300, result.getStats().getMatchesPlayed());
-            assertEquals(20000, result.getStats().getRunsScored());
-            assertEquals(100, result.getStats().getWicketsTaken());
-            assertEquals(150, result.getStats().getCatchesTaken());
+            // Act & Assert
+            assertThatThrownBy(() -> playerService.updatePlayer(999, createRequest))
+                    .isInstanceOf(ResourceNotFoundException.class);
         }
 
         @Test
-        @DisplayName("Should clear stats when updated with null")
-        void updatePlayer_WithNullStats_ShouldClearStats() {
+        @DisplayName("Should handle player with null teamId on update")
+        void shouldHandlePlayerWithNullTeamIdOnUpdate() {
             // Arrange
-            Player updatedDetails = new Player();
-            updatedDetails.setName(testPlayer.getName());
-            updatedDetails.setRole(testPlayer.getRole());
-            updatedDetails.setBattingStyle(testPlayer.getBattingStyle());
-            updatedDetails.setBowlingStyle(testPlayer.getBowlingStyle());
-            updatedDetails.setTeamId(testPlayer.getTeamId());
-            updatedDetails.setStats(null);
+            testPlayer.setTeamId(null);
 
-            when(playerRepository.findById(PLAYER_ID)).thenReturn(Optional.of(testPlayer));
-            when(playerRepository.save(any(Player.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            when(playerRepository.findById(100)).thenReturn(Optional.of(testPlayer));
+            when(teamRepository.findByTeamNameIgnoreCase("Mumbai Indians"))
+                    .thenReturn(Optional.of(testTeam));
+            when(teamRepository.findById(1)).thenReturn(Optional.of(testTeam));
+            when(playerRepository.save(any(Player.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
+            when(teamRepository.save(any(Team.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             // Act
-            Player result = playerService.updatePlayer(PLAYER_ID, updatedDetails);
+            PlayerResponse response = playerService.updatePlayer(100, createRequest);
 
             // Assert
-            assertNull(result.getStats());
+            assertThat(response.getTeamName()).isEqualTo("Mumbai Indians");
+            verify(teamRepository).save(any(Team.class));
         }
     }
 
@@ -527,178 +586,269 @@ class PlayerServiceTest {
     @DisplayName("Patch Player Tests")
     class PatchPlayerTests {
 
-        @Test
-        @DisplayName("Should patch only name field")
-        void patchPlayer_WithOnlyName_ShouldUpdateOnlyName() {
-            // Arrange
-            Player patchDetails = new Player();
-            patchDetails.setName("King Kohli");
+        private PlayerPatchRequest patchRequest;
 
-            when(playerRepository.findById(PLAYER_ID)).thenReturn(Optional.of(testPlayer));
-            when(playerRepository.save(any(Player.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-            // Act
-            Player result = playerService.patchPlayer(PLAYER_ID, patchDetails);
-
-            // Assert
-            assertEquals("King Kohli", result.getName());
-            assertEquals("Batsman", result.getRole()); // Unchanged
-            assertEquals("Right-Handed", result.getBattingStyle()); // Unchanged
-            assertEquals("Right-Arm Medium", result.getBowlingStyle()); // Unchanged
+        @BeforeEach
+        void setUpPatchRequest() {
+            patchRequest = new PlayerPatchRequest();
         }
 
         @Test
-        @DisplayName("Should patch only role field")
-        void patchPlayer_WithOnlyRole_ShouldUpdateOnlyRole() {
+        @DisplayName("Should patch only name")
+        void shouldPatchOnlyName() {
             // Arrange
-            Player patchDetails = new Player();
-            patchDetails.setRole("All-Rounder");
+            patchRequest.setName("New Name");
 
-            when(playerRepository.findById(PLAYER_ID)).thenReturn(Optional.of(testPlayer));
-            when(playerRepository.save(any(Player.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            when(playerRepository.findById(100)).thenReturn(Optional.of(testPlayer));
+            when(teamRepository.findById(1)).thenReturn(Optional.of(testTeam));
+            when(playerRepository.save(any(Player.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             // Act
-            Player result = playerService.patchPlayer(PLAYER_ID, patchDetails);
+            PlayerResponse response = playerService.patchPlayer(100, patchRequest);
 
             // Assert
-            assertEquals("Virat Kohli", result.getName()); // Unchanged
-            assertEquals("All-Rounder", result.getRole());
+            assertThat(response.getName()).isEqualTo("New Name");
+            assertThat(response.getRole()).isEqualTo("Batsman"); // Unchanged
         }
 
         @Test
-        @DisplayName("Should patch only batting style")
-        void patchPlayer_WithOnlyBattingStyle_ShouldUpdateOnlyBattingStyle() {
+        @DisplayName("Should patch only role")
+        void shouldPatchOnlyRole() {
             // Arrange
-            Player patchDetails = new Player();
-            patchDetails.setBattingStyle("Left-Handed");
+            patchRequest.setRole("All-rounder");
 
-            when(playerRepository.findById(PLAYER_ID)).thenReturn(Optional.of(testPlayer));
-            when(playerRepository.save(any(Player.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            when(playerRepository.findById(100)).thenReturn(Optional.of(testPlayer));
+            when(teamRepository.findById(1)).thenReturn(Optional.of(testTeam));
+            when(playerRepository.save(any(Player.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             // Act
-            Player result = playerService.patchPlayer(PLAYER_ID, patchDetails);
+            PlayerResponse response = playerService.patchPlayer(100, patchRequest);
 
             // Assert
-            assertEquals("Left-Handed", result.getBattingStyle());
-            assertEquals("Right-Arm Medium", result.getBowlingStyle()); // Unchanged
+            assertThat(response.getRole()).isEqualTo("All-rounder");
+            assertThat(response.getName()).isEqualTo("Virat Kohli"); // Unchanged
         }
 
         @Test
-        @DisplayName("Should patch only bowling style")
-        void patchPlayer_WithOnlyBowlingStyle_ShouldUpdateOnlyBowlingStyle() {
+        @DisplayName("Should patch batting and bowling style")
+        void shouldPatchBattingAndBowlingStyle() {
             // Arrange
-            Player patchDetails = new Player();
-            patchDetails.setBowlingStyle("Left-Arm Spin");
+            patchRequest.setBattingStyle("Left-handed");
+            patchRequest.setBowlingStyle("Left-arm spin");
 
-            when(playerRepository.findById(PLAYER_ID)).thenReturn(Optional.of(testPlayer));
-            when(playerRepository.save(any(Player.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            when(playerRepository.findById(100)).thenReturn(Optional.of(testPlayer));
+            when(teamRepository.findById(1)).thenReturn(Optional.of(testTeam));
+            when(playerRepository.save(any(Player.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             // Act
-            Player result = playerService.patchPlayer(PLAYER_ID, patchDetails);
+            PlayerResponse response = playerService.patchPlayer(100, patchRequest);
 
             // Assert
-            assertEquals("Right-Handed", result.getBattingStyle()); // Unchanged
-            assertEquals("Left-Arm Spin", result.getBowlingStyle());
+            assertThat(response.getBattingStyle()).isEqualTo("Left-handed");
+            assertThat(response.getBowlingStyle()).isEqualTo("Left-arm spin");
         }
 
         @Test
-        @DisplayName("Should patch only teamId")
-        void patchPlayer_WithOnlyTeamId_ShouldUpdateOnlyTeamId() {
+        @DisplayName("Should patch team (transfer player)")
+        void shouldPatchTeam() {
             // Arrange
-            Player patchDetails = new Player();
-            patchDetails.setTeamId(TEAM_ID);
+            Team newTeam = Team.builder()
+                    .id(2)
+                    .teamName("Chennai Super Kings")
+                    .playerIds(new ArrayList<>())
+                    .build();
 
-            when(playerRepository.findById(PLAYER_ID)).thenReturn(Optional.of(testPlayer));
-            when(playerRepository.save(any(Player.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            testTeam.getPlayerIds().add(100);
+            patchRequest.setTeamName("Chennai Super Kings");
+
+            when(playerRepository.findById(100)).thenReturn(Optional.of(testPlayer));
+            when(teamRepository.findByTeamNameIgnoreCase("Chennai Super Kings"))
+                    .thenReturn(Optional.of(newTeam));
+            when(teamRepository.findById(1)).thenReturn(Optional.of(testTeam));
+            when(teamRepository.findById(2)).thenReturn(Optional.of(newTeam));
+            when(playerRepository.save(any(Player.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
+            when(teamRepository.save(any(Team.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             // Act
-            Player result = playerService.patchPlayer(PLAYER_ID, patchDetails);
+            PlayerResponse response = playerService.patchPlayer(100, patchRequest);
 
             // Assert
-            assertEquals(TEAM_ID, result.getTeamId());
-            assertEquals("Virat Kohli", result.getName()); // Unchanged
+            assertThat(response.getTeamName()).isEqualTo("Chennai Super Kings");
         }
 
         @Test
-        @DisplayName("Should patch only stats")
-        void patchPlayer_WithOnlyStats_ShouldUpdateOnlyStats() {
+        @DisplayName("Should patch stats partially")
+        void shouldPatchStatsPartially() {
             // Arrange
-            Stats newStats = createStats(500, 25000, 200, 250);
-            Player patchDetails = new Player();
-            patchDetails.setStats(newStats);
+            Stats patchStats = Stats.builder()
+                    .matchesPlayed(100)
+                    .runsScored(null) // Don't update
+                    .wicketsTaken(50)
+                    .catchesTaken(null) // Don't update
+                    .build();
+            patchRequest.setStats(patchStats);
 
-            when(playerRepository.findById(PLAYER_ID)).thenReturn(Optional.of(testPlayer));
-            when(playerRepository.save(any(Player.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            when(playerRepository.findById(100)).thenReturn(Optional.of(testPlayer));
+            when(teamRepository.findById(1)).thenReturn(Optional.of(testTeam));
+            when(playerRepository.save(any(Player.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             // Act
-            Player result = playerService.patchPlayer(PLAYER_ID, patchDetails);
+            PlayerResponse response = playerService.patchPlayer(100, patchRequest);
 
             // Assert
-            assertNotNull(result.getStats());
-            assertEquals(500, result.getStats().getMatchesPlayed());
-            assertEquals(25000, result.getStats().getRunsScored());
-            assertEquals(200, result.getStats().getWicketsTaken());
-            assertEquals(250, result.getStats().getCatchesTaken());
-            assertEquals("Virat Kohli", result.getName()); // Unchanged
+            assertThat(response.getStats().getMatchesPlayed()).isEqualTo(100);
+            assertThat(response.getStats().getRunsScored()).isEqualTo(2000); // Original value
+            assertThat(response.getStats().getWicketsTaken()).isEqualTo(50);
+            assertThat(response.getStats().getCatchesTaken()).isEqualTo(25); // Original value
         }
 
         @Test
-        @DisplayName("Should patch multiple fields at once")
-        void patchPlayer_WithMultipleFields_ShouldUpdateAllProvidedFields() {
+        @DisplayName("Should create stats when patching player with null stats")
+        void shouldCreateStatsWhenNull() {
             // Arrange
-            Player patchDetails = new Player();
-            patchDetails.setName("Updated Name");
-            patchDetails.setRole("Bowler");
-            patchDetails.setBowlingStyle("Right-Arm Fast");
+            testPlayer.setStats(null);
+            Stats patchStats = Stats.builder()
+                    .matchesPlayed(10)
+                    .build();
+            patchRequest.setStats(patchStats);
 
-            when(playerRepository.findById(PLAYER_ID)).thenReturn(Optional.of(testPlayer));
-            when(playerRepository.save(any(Player.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            when(playerRepository.findById(100)).thenReturn(Optional.of(testPlayer));
+            when(teamRepository.findById(1)).thenReturn(Optional.of(testTeam));
+            when(playerRepository.save(any(Player.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             // Act
-            Player result = playerService.patchPlayer(PLAYER_ID, patchDetails);
+            PlayerResponse response = playerService.patchPlayer(100, patchRequest);
 
             // Assert
-            assertEquals("Updated Name", result.getName());
-            assertEquals("Bowler", result.getRole());
-            assertEquals("Right-Arm Fast", result.getBowlingStyle());
-            assertEquals("Right-Handed", result.getBattingStyle()); // Unchanged
+            assertThat(response.getStats()).isNotNull();
+            assertThat(response.getStats().getMatchesPlayed()).isEqualTo(10);
+            assertThat(response.getStats().getRunsScored()).isEqualTo(0);
         }
 
         @Test
-        @DisplayName("Should throw exception when player not found")
-        void patchPlayer_WhenPlayerNotExists_ShouldThrowException() {
+        @DisplayName("Should throw exception when patching name with duplicate")
+        void shouldThrowExceptionOnDuplicateNamePatch() {
             // Arrange
-            Player patchDetails = new Player();
-            patchDetails.setName("New Name");
+            Player existingPlayerInTeam = Player.builder()
+                    .id(10)
+                    .name("Duplicate Name")
+                    .teamId(1)
+                    .build();
 
-            when(playerRepository.findById(PLAYER_ID)).thenReturn(Optional.empty());
+            testTeam.getPlayerIds().add(100);
+            patchRequest.setName("Duplicate Name");
+
+            when(playerRepository.findById(100)).thenReturn(Optional.of(testPlayer));
+            when(teamRepository.findById(1)).thenReturn(Optional.of(testTeam));
+            when(playerRepository.findById(10)).thenReturn(Optional.of(existingPlayerInTeam));
 
             // Act & Assert
-            ResourceNotFoundException exception = assertThrows(
-                    ResourceNotFoundException.class,
-                    () -> playerService.patchPlayer(PLAYER_ID, patchDetails));
-
-            assertTrue(exception.getMessage().contains("Player"));
-            verify(playerRepository, never()).save(any(Player.class));
+            assertThatThrownBy(() -> playerService.patchPlayer(100, patchRequest))
+                    .isInstanceOf(InvalidRequestException.class)
+                    .hasMessageContaining("already exists in team");
         }
 
         @Test
-        @DisplayName("Should handle empty patch - no changes")
-        void patchPlayer_WithNoFields_ShouldReturnUnchangedPlayer() {
+        @DisplayName("Should throw exception when new team is full on patch")
+        void shouldThrowExceptionWhenNewTeamFullOnPatch() {
             // Arrange
-            Player emptyPatch = new Player();
+            List<Integer> fullPlayerList = new ArrayList<>();
+            for (int i = 1; i <= 25; i++) {
+                fullPlayerList.add(i);
+            }
 
-            when(playerRepository.findById(PLAYER_ID)).thenReturn(Optional.of(testPlayer));
-            when(playerRepository.save(any(Player.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            Team fullTeam = Team.builder()
+                    .id(2)
+                    .teamName("Full Team")
+                    .playerIds(fullPlayerList)
+                    .build();
+
+            patchRequest.setTeamName("Full Team");
+
+            when(playerRepository.findById(100)).thenReturn(Optional.of(testPlayer));
+            when(teamRepository.findByTeamNameIgnoreCase("Full Team"))
+                    .thenReturn(Optional.of(fullTeam));
+            when(teamRepository.findById(1)).thenReturn(Optional.of(testTeam));
+            when(teamRepository.save(any(Team.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
+
+            // Act & Assert
+            assertThatThrownBy(() -> playerService.patchPlayer(100, patchRequest))
+                    .isInstanceOf(InvalidRequestException.class)
+                    .hasMessageContaining("maximum player limit of 25");
+        }
+
+        @Test
+        @DisplayName("Should throw exception when player not found for patch")
+        void shouldThrowExceptionWhenPlayerNotFoundForPatch() {
+            // Arrange
+            when(playerRepository.findById(999)).thenReturn(Optional.empty());
+
+            // Act & Assert
+            assertThatThrownBy(() -> playerService.patchPlayer(999, patchRequest))
+                    .isInstanceOf(ResourceNotFoundException.class);
+        }
+
+        @Test
+        @DisplayName("Should ignore blank name on patch")
+        void shouldIgnoreBlankNameOnPatch() {
+            // Arrange
+            patchRequest.setName("   ");
+
+            when(playerRepository.findById(100)).thenReturn(Optional.of(testPlayer));
+            when(teamRepository.findById(1)).thenReturn(Optional.of(testTeam));
+            when(playerRepository.save(any(Player.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             // Act
-            Player result = playerService.patchPlayer(PLAYER_ID, emptyPatch);
+            PlayerResponse response = playerService.patchPlayer(100, patchRequest);
 
             // Assert
-            assertEquals("Virat Kohli", result.getName());
-            assertEquals("Batsman", result.getRole());
-            assertEquals("Right-Handed", result.getBattingStyle());
-            assertEquals("Right-Arm Medium", result.getBowlingStyle());
+            assertThat(response.getName()).isEqualTo("Virat Kohli"); // Unchanged
+        }
+
+        @Test
+        @DisplayName("Should ignore blank role on patch")
+        void shouldIgnoreBlankRoleOnPatch() {
+            // Arrange
+            patchRequest.setRole("");
+
+            when(playerRepository.findById(100)).thenReturn(Optional.of(testPlayer));
+            when(teamRepository.findById(1)).thenReturn(Optional.of(testTeam));
+            when(playerRepository.save(any(Player.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
+
+            // Act
+            PlayerResponse response = playerService.patchPlayer(100, patchRequest);
+
+            // Assert
+            assertThat(response.getRole()).isEqualTo("Batsman"); // Unchanged
+        }
+
+        @Test
+        @DisplayName("Should handle player without team on name patch")
+        void shouldHandlePlayerWithoutTeamOnNamePatch() {
+            // Arrange
+            testPlayer.setTeamId(null);
+            patchRequest.setName("New Name");
+
+            when(playerRepository.findById(100)).thenReturn(Optional.of(testPlayer));
+            when(playerRepository.save(any(Player.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
+
+            // Act
+            PlayerResponse response = playerService.patchPlayer(100, patchRequest);
+
+            // Assert
+            assertThat(response.getName()).isEqualTo("New Name");
+            assertThat(response.getTeamName()).isNull();
         }
     }
 
@@ -707,434 +857,204 @@ class PlayerServiceTest {
     class DeletePlayerTests {
 
         @Test
+        @DisplayName("Should delete player successfully")
+        void shouldDeletePlayerSuccessfully() {
+            // Arrange
+            testTeam.getPlayerIds().add(100);
+
+            when(playerRepository.findById(100)).thenReturn(Optional.of(testPlayer));
+            when(teamRepository.findById(1)).thenReturn(Optional.of(testTeam));
+            when(teamRepository.save(any(Team.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
+
+            // Act
+            PlayerResponse response = playerService.deletePlayer(100);
+
+            // Assert
+            assertThat(response).isNotNull();
+            assertThat(response.getId()).isEqualTo(100);
+            assertThat(response.getName()).isEqualTo("Virat Kohli");
+
+            verify(playerRepository).deleteById(100);
+
+            // Verify player was removed from team
+            verify(teamRepository).save(teamCaptor.capture());
+            Team savedTeam = teamCaptor.getValue();
+            assertThat(savedTeam.getPlayerIds()).doesNotContain(100);
+        }
+
+        @Test
+        @DisplayName("Should clear captain when deleting captain")
+        void shouldClearCaptainWhenDeletingCaptain() {
+            // Arrange
+            testTeam.setCaptainId(100);
+            testTeam.getPlayerIds().add(100);
+
+            when(playerRepository.findById(100)).thenReturn(Optional.of(testPlayer));
+            when(teamRepository.findById(1)).thenReturn(Optional.of(testTeam));
+            when(teamRepository.save(any(Team.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
+
+            // Act
+            playerService.deletePlayer(100);
+
+            // Assert
+            verify(teamRepository).save(teamCaptor.capture());
+            Team savedTeam = teamCaptor.getValue();
+            assertThat(savedTeam.getCaptainId()).isNull();
+        }
+
+        @Test
         @DisplayName("Should delete player without team")
-        void deletePlayer_WithoutTeam_ShouldDeleteSuccessfully() {
+        void shouldDeletePlayerWithoutTeam() {
             // Arrange
             testPlayer.setTeamId(null);
-            when(playerRepository.findById(PLAYER_ID)).thenReturn(Optional.of(testPlayer));
-            doNothing().when(playerRepository).deleteById(PLAYER_ID);
+
+            when(playerRepository.findById(100)).thenReturn(Optional.of(testPlayer));
 
             // Act
-            Player result = playerService.deletePlayer(PLAYER_ID);
+            PlayerResponse response = playerService.deletePlayer(100);
 
             // Assert
-            assertNotNull(result);
-            assertEquals(PLAYER_ID, result.getId());
-            assertEquals("Virat Kohli", result.getName());
-            verify(playerRepository, times(1)).deleteById(PLAYER_ID);
-            verify(teamRepository, never()).findById(anyString());
+            assertThat(response).isNotNull();
+            verify(playerRepository).deleteById(100);
+            verify(teamRepository, never()).save(any());
         }
 
         @Test
-        @DisplayName("Should delete player with empty teamId")
-        void deletePlayer_WithEmptyTeamId_ShouldDeleteSuccessfully() {
+        @DisplayName("Should throw exception when player not found for delete")
+        void shouldThrowExceptionWhenPlayerNotFoundForDelete() {
             // Arrange
-            testPlayer.setTeamId("");
-            when(playerRepository.findById(PLAYER_ID)).thenReturn(Optional.of(testPlayer));
-            doNothing().when(playerRepository).deleteById(PLAYER_ID);
-
-            // Act
-            Player result = playerService.deletePlayer(PLAYER_ID);
-
-            // Assert
-            assertNotNull(result);
-            verify(teamRepository, never()).findById(anyString());
-            verify(playerRepository, times(1)).deleteById(PLAYER_ID);
-        }
-
-        @Test
-        @DisplayName("Should delete player and remove from team's playerIds")
-        void deletePlayer_WithTeam_ShouldRemoveFromTeamPlayerIds() {
-            // Arrange
-            testPlayer.setTeamId(TEAM_ID);
-            testTeam.setPlayerIds(new ArrayList<>(Arrays.asList(PLAYER_ID, "otherPlayer")));
-            testTeam.setCaptainId("otherPlayer");
-
-            when(playerRepository.findById(PLAYER_ID)).thenReturn(Optional.of(testPlayer));
-            when(teamRepository.findById(TEAM_ID)).thenReturn(Optional.of(testTeam));
-            when(teamRepository.save(any(Team.class))).thenReturn(testTeam);
-            doNothing().when(playerRepository).deleteById(PLAYER_ID);
-
-            // Act
-            Player result = playerService.deletePlayer(PLAYER_ID);
-
-            // Assert
-            assertNotNull(result);
-            verify(teamRepository, times(1)).save(argThat(team -> !team.getPlayerIds().contains(PLAYER_ID)));
-            verify(playerRepository, times(1)).deleteById(PLAYER_ID);
-        }
-
-        @Test
-        @DisplayName("Should delete captain and clear team's captainId")
-        void deletePlayer_WhenCaptain_ShouldClearCaptainId() {
-            // Arrange
-            testPlayer.setTeamId(TEAM_ID);
-            testTeam.setPlayerIds(new ArrayList<>(Arrays.asList(PLAYER_ID, "otherPlayer")));
-            testTeam.setCaptainId(PLAYER_ID); // Player is captain
-
-            when(playerRepository.findById(PLAYER_ID)).thenReturn(Optional.of(testPlayer));
-            when(teamRepository.findById(TEAM_ID)).thenReturn(Optional.of(testTeam));
-            when(teamRepository.save(any(Team.class))).thenAnswer(invocation -> invocation.getArgument(0));
-            doNothing().when(playerRepository).deleteById(PLAYER_ID);
-
-            // Act
-            Player result = playerService.deletePlayer(PLAYER_ID);
-
-            // Assert
-            assertNotNull(result);
-            verify(teamRepository, times(1)).save(argThat(team -> team.getCaptainId() == null));
-        }
-
-        @Test
-        @DisplayName("Should not clear captainId when deleting non-captain player")
-        void deletePlayer_WhenNotCaptain_ShouldNotClearCaptainId() {
-            // Arrange
-            testPlayer.setTeamId(TEAM_ID);
-            testTeam.setPlayerIds(new ArrayList<>(Arrays.asList(PLAYER_ID, CAPTAIN_ID)));
-            testTeam.setCaptainId(CAPTAIN_ID); // Different player is captain
-
-            when(playerRepository.findById(PLAYER_ID)).thenReturn(Optional.of(testPlayer));
-            when(teamRepository.findById(TEAM_ID)).thenReturn(Optional.of(testTeam));
-            when(teamRepository.save(any(Team.class))).thenAnswer(invocation -> invocation.getArgument(0));
-            doNothing().when(playerRepository).deleteById(PLAYER_ID);
-
-            // Act
-            playerService.deletePlayer(PLAYER_ID);
-
-            // Assert
-            verify(teamRepository, times(1)).save(argThat(team -> CAPTAIN_ID.equals(team.getCaptainId())));
-        }
-
-        @Test
-        @DisplayName("Should throw exception when deleting non-existent player")
-        void deletePlayer_WhenNotExists_ShouldThrowException() {
-            // Arrange
-            when(playerRepository.findById(PLAYER_ID)).thenReturn(Optional.empty());
+            when(playerRepository.findById(999)).thenReturn(Optional.empty());
 
             // Act & Assert
-            ResourceNotFoundException exception = assertThrows(
-                    ResourceNotFoundException.class,
-                    () -> playerService.deletePlayer(PLAYER_ID));
+            assertThatThrownBy(() -> playerService.deletePlayer(999))
+                    .isInstanceOf(ResourceNotFoundException.class);
 
-            assertTrue(exception.getMessage().contains("Player"));
-            verify(playerRepository, never()).deleteById(anyString());
+            verify(playerRepository, never()).deleteById(anyInt());
         }
 
         @Test
-        @DisplayName("Should handle case when team not found during deletion")
-        void deletePlayer_WhenTeamNotFound_ShouldStillDeletePlayer() {
+        @DisplayName("Should handle team not found during delete gracefully")
+        void shouldHandleTeamNotFoundDuringDelete() {
             // Arrange
-            testPlayer.setTeamId(TEAM_ID);
-            when(playerRepository.findById(PLAYER_ID)).thenReturn(Optional.of(testPlayer));
-            when(teamRepository.findById(TEAM_ID)).thenReturn(Optional.empty());
-            doNothing().when(playerRepository).deleteById(PLAYER_ID);
+            when(playerRepository.findById(100)).thenReturn(Optional.of(testPlayer));
+            when(teamRepository.findById(1)).thenReturn(Optional.empty());
 
             // Act
-            Player result = playerService.deletePlayer(PLAYER_ID);
+            PlayerResponse response = playerService.deletePlayer(100);
 
             // Assert
-            assertNotNull(result);
-            verify(teamRepository, never()).save(any(Team.class));
-            verify(playerRepository, times(1)).deleteById(PLAYER_ID);
-        }
-
-        @Test
-        @DisplayName("Should return complete player object with stats after deletion")
-        void deletePlayer_ShouldReturnCompletePlayerObject() {
-            // Arrange
-            testPlayer.setTeamId(null);
-            when(playerRepository.findById(PLAYER_ID)).thenReturn(Optional.of(testPlayer));
-            doNothing().when(playerRepository).deleteById(PLAYER_ID);
-
-            // Act
-            Player result = playerService.deletePlayer(PLAYER_ID);
-
-            // Assert
-            assertEquals(PLAYER_ID, result.getId());
-            assertEquals("Virat Kohli", result.getName());
-            assertEquals("Batsman", result.getRole());
-            assertEquals("Right-Handed", result.getBattingStyle());
-            assertEquals("Right-Arm Medium", result.getBowlingStyle());
-            assertNotNull(result.getStats());
-            assertEquals(150, result.getStats().getMatchesPlayed());
+            assertThat(response).isNotNull();
+            verify(playerRepository).deleteById(100);
+            verify(teamRepository, never()).save(any());
         }
     }
 
     @Nested
-    @DisplayName("Stats-Specific Tests")
-    class StatsSpecificTests {
+    @DisplayName("Helper Method Tests")
+    class HelperMethodTests {
 
         @Test
-        @DisplayName("Should handle player with zero stats")
-        void stats_WithZeroValues_ShouldBeHandledCorrectly() {
+        @DisplayName("Should convert player to response with team name")
+        void shouldConvertPlayerToResponseWithTeamName() {
             // Arrange
-            Stats zeroStats = createStats(0, 0, 0, 0);
-            testPlayer.setStats(zeroStats);
-            testPlayer.setTeamId(null);
-            when(playerRepository.save(any(Player.class))).thenReturn(testPlayer);
+            when(playerRepository.findById(100)).thenReturn(Optional.of(testPlayer));
+            when(teamRepository.findById(1)).thenReturn(Optional.of(testTeam));
 
             // Act
-            Player result = playerService.create(testPlayer);
+            PlayerResponse response = playerService.getPlayerById(100);
 
             // Assert
-            assertNotNull(result.getStats());
-            assertEquals(0, result.getStats().getMatchesPlayed());
-            assertEquals(0, result.getStats().getRunsScored());
-            assertEquals(0, result.getStats().getWicketsTaken());
-            assertEquals(0, result.getStats().getCatchesTaken());
+            assertThat(response.getTeamName()).isEqualTo("Mumbai Indians");
         }
 
         @Test
-        @DisplayName("Should handle player with high stats values")
-        void stats_WithHighValues_ShouldBeHandledCorrectly() {
+        @DisplayName("Should handle team not found when converting to response")
+        void shouldHandleTeamNotFoundInConversion() {
             // Arrange
-            Stats highStats = createStats(500, 50000, 500, 300);
-            testPlayer.setStats(highStats);
-            testPlayer.setTeamId(null);
-            when(playerRepository.save(any(Player.class))).thenReturn(testPlayer);
+            when(playerRepository.findById(100)).thenReturn(Optional.of(testPlayer));
+            when(teamRepository.findById(1)).thenReturn(Optional.empty());
 
             // Act
-            Player result = playerService.create(testPlayer);
+            PlayerResponse response = playerService.getPlayerById(100);
 
             // Assert
-            assertNotNull(result.getStats());
-            assertEquals(500, result.getStats().getMatchesPlayed());
-            assertEquals(50000, result.getStats().getRunsScored());
-            assertEquals(500, result.getStats().getWicketsTaken());
-            assertEquals(300, result.getStats().getCatchesTaken());
-        }
-
-        @Test
-        @DisplayName("Should handle player with null stats")
-        void stats_WithNullStats_ShouldBeHandledCorrectly() {
-            // Arrange
-            testPlayer.setStats(null);
-            testPlayer.setTeamId(null);
-            when(playerRepository.save(any(Player.class))).thenReturn(testPlayer);
-
-            // Act
-            Player result = playerService.create(testPlayer);
-
-            // Assert
-            assertNull(result.getStats());
-        }
-
-        @Test
-        @DisplayName("Should update individual stats field")
-        void patchPlayer_UpdateStatsOnly_ShouldPreserveOtherFields() {
-            // Arrange
-            Stats updatedStats = Stats.builder()
-                    .matchesPlayed(200)
-                    .runsScored(15000)
-                    .wicketsTaken(60)
-                    .catchesTaken(100)
-                    .build();
-
-            Player patchDetails = new Player();
-            patchDetails.setStats(updatedStats);
-
-            when(playerRepository.findById(PLAYER_ID)).thenReturn(Optional.of(testPlayer));
-            when(playerRepository.save(any(Player.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-            // Act
-            Player result = playerService.patchPlayer(PLAYER_ID, patchDetails);
-
-            // Assert
-            assertEquals("Virat Kohli", result.getName()); // Unchanged
-            assertEquals("Batsman", result.getRole()); // Unchanged
-            assertEquals(200, result.getStats().getMatchesPlayed());
-            assertEquals(15000, result.getStats().getRunsScored());
-            assertEquals(60, result.getStats().getWicketsTaken());
-            assertEquals(100, result.getStats().getCatchesTaken());
-        }
-
-        @Test
-        @DisplayName("Should handle bowler stats - high wickets, low runs")
-        void stats_ForBowler_ShouldHandleCorrectly() {
-            // Arrange
-            Stats bowlerStats = createStats(200, 500, 300, 50);
-            Player bowler = createPlayer("bowler1", "Jasprit Bumrah", "Bowler", "Right-Handed", "Right-Arm Fast");
-            bowler.setStats(bowlerStats);
-
-            when(playerRepository.save(any(Player.class))).thenReturn(bowler);
-
-            // Act
-            Player result = playerService.create(bowler);
-
-            // Assert
-            assertEquals(300, result.getStats().getWicketsTaken());
-            assertEquals(500, result.getStats().getRunsScored());
-        }
-
-        @Test
-        @DisplayName("Should handle wicket-keeper stats - high catches")
-        void stats_ForWicketKeeper_ShouldHandleHighCatches() {
-            // Arrange
-            Stats keeperStats = createStats(350, 10000, 0, 500);
-            Player keeper = createPlayer("keeper1", "MS Dhoni", "Wicket-Keeper", "Right-Handed", "None");
-            keeper.setStats(keeperStats);
-
-            when(playerRepository.save(any(Player.class))).thenReturn(keeper);
-
-            // Act
-            Player result = playerService.create(keeper);
-
-            // Assert
-            assertEquals(500, result.getStats().getCatchesTaken());
-            assertEquals(0, result.getStats().getWicketsTaken());
+            assertThat(response.getTeamName()).isNull();
         }
     }
 
     @Nested
-    @DisplayName("Edge Cases Tests")
-    class EdgeCasesTests {
+    @DisplayName("Edge Case Tests")
+    class EdgeCaseTests {
 
         @Test
-        @DisplayName("Should handle player with all bowling styles")
-        void player_WithDifferentBowlingStyles_ShouldCreateSuccessfully() {
+        @DisplayName("Should handle case-insensitive team name search")
+        void shouldHandleCaseInsensitiveTeamName() {
             // Arrange
-            String[] bowlingStyles = {
-                    "Right-Arm Fast", "Left-Arm Fast",
-                    "Right-Arm Medium", "Left-Arm Medium",
-                    "Right-Arm Spin", "Left-Arm Spin", "None"
-            };
+            createRequest.setTeamName("MUMBAI INDIANS"); // Different case
 
-            for (String style : bowlingStyles) {
-                testPlayer.setBowlingStyle(style);
-                testPlayer.setTeamId(null);
-                when(playerRepository.save(any(Player.class))).thenReturn(testPlayer);
+            when(teamRepository.findByTeamNameIgnoreCase("MUMBAI INDIANS"))
+                    .thenReturn(Optional.of(testTeam));
+            when(sequenceGeneratorService.generateSequence(Player.SEQUENCE_NAME))
+                    .thenReturn(101);
+            when(playerRepository.save(any(Player.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
+            when(teamRepository.save(any(Team.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
+            when(playerRepository.findById(anyInt())).thenReturn(Optional.of(
+                    Player.builder().id(1).name("Other").build()));
 
-                // Act
-                Player result = playerService.create(testPlayer);
-
-                // Assert
-                assertNotNull(result);
-                assertEquals(style, result.getBowlingStyle());
-            }
-        }
-
-        @Test
-        @DisplayName("Should handle player with both batting styles")
-        void player_WithDifferentBattingStyles_ShouldCreateSuccessfully() {
-            // Arrange
-            String[] battingStyles = { "Right-Handed", "Left-Handed" };
-
-            for (String style : battingStyles) {
-                testPlayer.setBattingStyle(style);
-                testPlayer.setTeamId(null);
-                when(playerRepository.save(any(Player.class))).thenReturn(testPlayer);
-
-                // Act
-                Player result = playerService.create(testPlayer);
-
-                // Assert
-                assertNotNull(result);
-                assertEquals(style, result.getBattingStyle());
-            }
-        }
-
-        @Test
-        @DisplayName("Should handle team with empty playerIds list during create")
-        void create_TeamWithEmptyPlayerIds_ShouldAddPlayerSuccessfully() {
-            // Arrange
-            testPlayer.setTeamId(TEAM_ID);
-            testTeam.setPlayerIds(new ArrayList<>());
-
-            when(teamRepository.findById(TEAM_ID)).thenReturn(Optional.of(testTeam));
-            when(playerRepository.save(any(Player.class))).thenReturn(testPlayer);
-            when(teamRepository.save(any(Team.class))).thenReturn(testTeam);
+            // *** KEY FIX: Mock for convertToResponse() ***
+            when(teamRepository.findById(1)).thenReturn(Optional.of(testTeam));
 
             // Act
-            Player result = playerService.create(testPlayer);
+            PlayerResponse response = playerService.create(createRequest);
 
             // Assert
-            assertNotNull(result);
-            verify(teamRepository, times(1)).save(argThat(team -> team.getPlayerIds().contains(PLAYER_ID)));
+            assertThat(response.getTeamName()).isEqualTo("Mumbai Indians");
         }
 
         @Test
-        @DisplayName("Should verify repository interaction order in create with team")
-        void create_WithTeam_ShouldCallRepositoriesInCorrectOrder() {
+        @DisplayName("Should handle case-insensitive player name duplicate check")
+        void shouldHandleCaseInsensitivePlayerNameCheck() {
             // Arrange
-            testPlayer.setTeamId(TEAM_ID);
-            testTeam.setPlayerIds(new ArrayList<>());
+            createRequest.setName("PLAYER ONE"); // Same name different case
 
-            when(teamRepository.findById(TEAM_ID)).thenReturn(Optional.of(testTeam));
-            when(playerRepository.save(any(Player.class))).thenReturn(testPlayer);
-            when(teamRepository.save(any(Team.class))).thenReturn(testTeam);
+            when(teamRepository.findByTeamNameIgnoreCase("Mumbai Indians"))
+                    .thenReturn(Optional.of(testTeam));
+            when(playerRepository.findById(10)).thenReturn(Optional.of(
+                    Player.builder().id(10).name("Player One").build()));
 
-            // Act
-            playerService.create(testPlayer);
-
-            // Assert - Verify order
-            var inOrder = inOrder(teamRepository, playerRepository);
-            inOrder.verify(teamRepository).findById(TEAM_ID);
-            inOrder.verify(playerRepository).save(any(Player.class));
-            inOrder.verify(teamRepository).save(any(Team.class));
+            // Act & Assert
+            assertThatThrownBy(() -> playerService.create(createRequest))
+                    .isInstanceOf(InvalidRequestException.class)
+                    .hasMessageContaining("already exists");
         }
-    }
-
-    @Nested
-    @DisplayName("Repository Interaction Verification Tests")
-    class VerificationTests {
 
         @Test
-        @DisplayName("Should not interact with teamRepository in getAllPlayers")
-        void getAllPlayers_ShouldNotInteractWithTeamRepository() {
+        @DisplayName("Should handle multiple fields update simultaneously")
+        void shouldHandleMultipleFieldsUpdateSimultaneously() {
             // Arrange
-            when(playerRepository.findAll()).thenReturn(Arrays.asList(testPlayer));
+            PlayerPatchRequest patchRequest = new PlayerPatchRequest();
+            patchRequest.setName("Updated Name");
+            patchRequest.setRole("Updated Role");
+            patchRequest.setBattingStyle("Left-handed");
+            patchRequest.setBowlingStyle("Left-arm spin");
+
+            when(playerRepository.findById(100)).thenReturn(Optional.of(testPlayer));
+            when(teamRepository.findById(1)).thenReturn(Optional.of(testTeam));
+            when(playerRepository.save(any(Player.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             // Act
-            playerService.getAllPlayers();
+            PlayerResponse response = playerService.patchPlayer(100, patchRequest);
 
             // Assert
-            verifyNoInteractions(teamRepository);
-        }
-
-        @Test
-        @DisplayName("Should call findById exactly once in getPlayerById")
-        void getPlayerById_ShouldCallFindByIdOnce() {
-            // Arrange
-            when(playerRepository.findById(PLAYER_ID)).thenReturn(Optional.of(testPlayer));
-
-            // Act
-            playerService.getPlayerById(PLAYER_ID);
-
-            // Assert
-            verify(playerRepository, times(1)).findById(PLAYER_ID);
-            verifyNoMoreInteractions(playerRepository);
-        }
-
-        @Test
-        @DisplayName("Should call save exactly once in updatePlayer")
-        void updatePlayer_ShouldCallSaveOnce() {
-            // Arrange
-            when(playerRepository.findById(PLAYER_ID)).thenReturn(Optional.of(testPlayer));
-            when(playerRepository.save(any(Player.class))).thenReturn(testPlayer);
-
-            // Act
-            playerService.updatePlayer(PLAYER_ID, testPlayer);
-
-            // Assert
-            verify(playerRepository, times(1)).findById(PLAYER_ID);
-            verify(playerRepository, times(1)).save(any(Player.class));
-        }
-
-        @Test
-        @DisplayName("Should not interact with teamRepository in patchPlayer")
-        void patchPlayer_ShouldNotInteractWithTeamRepository() {
-            // Arrange
-            Player patchDetails = new Player();
-            patchDetails.setName("Updated Name");
-
-            when(playerRepository.findById(PLAYER_ID)).thenReturn(Optional.of(testPlayer));
-            when(playerRepository.save(any(Player.class))).thenReturn(testPlayer);
-
-            // Act
-            playerService.patchPlayer(PLAYER_ID, patchDetails);
-
-            // Assert
-            verifyNoInteractions(teamRepository);
+            assertThat(response.getName()).isEqualTo("Updated Name");
+            assertThat(response.getRole()).isEqualTo("Updated Role");
+            assertThat(response.getBattingStyle()).isEqualTo("Left-handed");
+            assertThat(response.getBowlingStyle()).isEqualTo("Left-arm spin");
         }
     }
 }

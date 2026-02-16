@@ -2,98 +2,51 @@ package com.example.tournament_data.dto;
 
 import java.util.List;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+@Schema(description = "Detailed team response with player information from aggregation")
 public class TeamDetailsResponse {
-    private String id;
+
+    @Schema(description = "Unique identifier of the team", example = "1")
+    private Integer id;
+
+    @Schema(description = "Official name of the team", example = "Mumbai Indians")
     private String teamName;
+
+    @Schema(description = "Home stadium/ground", example = "Wankhede Stadium, Mumbai")
     private String homeGround;
-    private String captainId;
+
+    @Schema(description = "Name of the team's head coach", example = "Mahela Jayawardene")
     private String coach;
 
-    // for storing the squad
-    private List<PlayerInfo> squad;
+    @Schema(description = "Player ID of the team captain", example = "1")
+    private Integer captainId;
 
-    public TeamDetailsResponse() {
-    }
+    @Schema(description = "List of players with their details")
+    private List<PlayerSummary> squad;
 
-    public String getId() {
-        return id;
-    }
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    @Schema(description = "Player summary information")
+    public static class PlayerSummary {
 
-    public void setId(String id) {
-        this.id = id;
-    }
+        @Schema(description = "Player ID", example = "1")
+        private Integer id;
 
-    public String getTeamName() {
-        return teamName;
-    }
-
-    public void setTeamName(String teamName) {
-        this.teamName = teamName;
-    }
-
-    public String getHomeGround() {
-        return homeGround;
-    }
-
-    public void setHomeGround(String homeGround) {
-        this.homeGround = homeGround;
-    }
-
-    public String getCaptainId() {
-        return captainId;
-    }
-
-    public void setCaptainId(String captainId) {
-        this.captainId = captainId;
-    }
-
-    public String getCoach() {
-        return coach;
-    }
-
-    public void setCoach(String coach) {
-        this.coach = coach;
-    }
-
-    public List<PlayerInfo> getSquad() {
-        return squad;
-    }
-
-    public void setSquad(List<PlayerInfo> squad) {
-        this.squad = squad;
-    }
-
-    public static class PlayerInfo {
-        private String id;
+        @Schema(description = "Player name", example = "Rohit Sharma")
         private String name;
+
+        @Schema(description = "Player role", example = "Batsman")
         private String role;
-
-        public PlayerInfo() {
-        }
-
-        public String getId() {
-            return id;
-        }
-
-        public void setId(String id) {
-            this.id = id;
-        }
-
-        public String getName() {
-            return name;
-        }
-
-        public void setName(String name) {
-            this.name = name;
-        }
-
-        public String getRole() {
-            return role;
-        }
-
-        public void setRole(String role) {
-            this.role = role;
-        }
-
     }
 }

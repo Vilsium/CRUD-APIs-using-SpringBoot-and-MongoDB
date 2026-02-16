@@ -1,12 +1,18 @@
 package com.example.tournament_data.service;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
-import java.time.LocalDateTime;
+import java.time.LocalDateTime; // CHANGED from LocalDate  
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -15,19 +21,31 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Captor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 
+import com.example.tournament_data.dto.MatchCreateRequest;
+import com.example.tournament_data.dto.MatchPatchRequest;
+import com.example.tournament_data.dto.MatchResponse;
+import com.example.tournament_data.dto.ResultCreateRequest;
 import com.example.tournament_data.exception.InvalidRequestException;
 import com.example.tournament_data.exception.ResourceNotFoundException;
 import com.example.tournament_data.model.Match;
+import com.example.tournament_data.model.Player;
 import com.example.tournament_data.model.Result;
+import com.example.tournament_data.model.Team;
 import com.example.tournament_data.repository.MatchRepository;
+import com.example.tournament_data.repository.PlayerRepository;
 import com.example.tournament_data.repository.TeamRepository;
 
 @ExtendWith(MockitoExtension.class)
-@DisplayName("MatchService Unit Tests")
+@MockitoSettings(strictness = Strictness.LENIENT)
+@DisplayName("MatchService Tests")
 class MatchServiceTest {
 
     @Mock
@@ -36,56 +54,98 @@ class MatchServiceTest {
     @Mock
     private TeamRepository teamRepository;
 
+    @Mock
+    private PlayerRepository playerRepository;
+
+    @Mock
+    private SequenceGeneratorService sequenceGeneratorService;
+
     @InjectMocks
     private MatchService matchService;
 
-    private Match testMatch;
-    private Result testResult;
+    @Captor
+    private ArgumentCaptor<Match> matchCaptor;
 
-    private static final String MATCH_ID = "64a1b2c3d4e5f6g7h8i9j0k1";
-    private static final String FIRST_TEAM_ID = "64a1b2c3d4e5f6g7h8i9j0k2";
-    private static final String SECOND_TEAM_ID = "64a1b2c3d4e5f6g7h8i9j0k3";
-    private static final String PLAYER_ID = "64a1b2c3d4e5f6g7h8i9j0k4";
+    // Test data
+    private Team team1;
+    private Team team2;
+    private Player player1;
+    private Player player2;
+    private Match testMatch;
+    private MatchCreateRequest createRequest;
+    private ResultCreateRequest resultRequest;
+    private Result testResult;
 
     @BeforeEach
     void setUp() {
+        // Initialize test teams
+        team1 = Team.builder()
+                .id(1)
+                .teamName("Mumbai Indians")
+                .homeGround("Wankhede Stadium")
+                .playerIds(new ArrayList<>(Arrays.asList(10, 11, 12)))
+                .build();
+
+        team2 = Team.builder()
+                .id(2)
+                .teamName("Chennai Super Kings")
+                .homeGround("MA Chidambaram Stadium")
+                .playerIds(new ArrayList<>(Arrays.asList(20, 21, 22)))
+                .build();
+
+        // Initialize test players
+        player1 = Player.builder()
+                .id(10)
+                .name("Rohit Sharma")
+                .teamId(1)
+                .role("Batsman")
+                .build();
+
+        player2 = Player.builder()
+                .id(20)
+                .name("MS Dhoni")
+                .teamId(2)
+                .role("Wicket-keeper")
+                .build();
+
         // Initialize test result
         testResult = Result.builder()
-                .winner(FIRST_TEAM_ID)
-                .margin("45 runs")
-                .manOfTheMatchId(PLAYER_ID)
+                .winner(1)
+                .margin("5 wickets")
+                .manOfTheMatchId(10)
                 .build();
 
-        // Initialize test match
-        testMatch = new Match();
-        testMatch.setId(MATCH_ID);
-        testMatch.setVenue("Wankhede Stadium");
-        testMatch.setDate(LocalDateTime.of(2024, 5, 15, 19, 30));
-        testMatch.setFirstTeam(FIRST_TEAM_ID);
-        testMatch.setSecondTeam(SECOND_TEAM_ID);
-        testMatch.setStatus("Scheduled");
-        testMatch.setResult(null);
-    }
-
-    // ==================== HELPER METHODS ====================
-    private Result createResult(String winner, String margin, String manOfTheMatch) {
-        return Result.builder()
-                .winner(winner)
-                .margin(margin)
-                .manOfTheMatchId(manOfTheMatch)
+        // Initialize test match - CHANGED to LocalDateTime
+        testMatch = Match.builder()
+                .id(100)
+                .venue("Wankhede Stadium")
+                .date(LocalDateTime.of(2024, 4, 15, 19, 30)) // CHANGED
+                .firstTeam(1)
+                .secondTeam(2)
+                .status("SCHEDULED")
+                .result(null)
                 .build();
-    }
 
-    private Match createCompletedMatch() {
-        Match completedMatch = new Match();
-        completedMatch.setId(MATCH_ID);
-        completedMatch.setVenue("Wankhede Stadium");
-        completedMatch.setDate(LocalDateTime.of(2024, 5, 15, 19, 30));
-        completedMatch.setFirstTeam(FIRST_TEAM_ID);
-        completedMatch.setSecondTeam(SECOND_TEAM_ID);
-        completedMatch.setStatus("Completed");
-        completedMatch.setResult(testResult);
-        return completedMatch;
+        // Initialize result request
+        resultRequest = new ResultCreateRequest();
+        resultRequest.setWinner("Mumbai Indians");
+        resultRequest.setMargin("5 wickets");
+        resultRequest.setManOfTheMatchName("Rohit Sharma");
+
+        // Initialize create request - CHANGED to LocalDateTime
+        createRequest = new MatchCreateRequest();
+        createRequest.setVenue("Wankhede Stadium");
+        createRequest.setDate(LocalDateTime.of(2024, 4, 15, 19, 30)); // CHANGED
+        createRequest.setFirstTeamName("Mumbai Indians");
+        createRequest.setSecondTeamName("Chennai Super Kings");
+        createRequest.setStatus("SCHEDULED");
+        createRequest.setResult(null);
+
+        // Setup common mocks for convertToResponse
+        lenient().when(teamRepository.findById(1)).thenReturn(Optional.of(team1));
+        lenient().when(teamRepository.findById(2)).thenReturn(Optional.of(team2));
+        lenient().when(playerRepository.findById(10)).thenReturn(Optional.of(player1));
+        lenient().when(playerRepository.findById(20)).thenReturn(Optional.of(player2));
     }
 
     // ==================== CREATE TESTS ====================
@@ -94,854 +154,1004 @@ class MatchServiceTest {
     class CreateMatchTests {
 
         @Test
-        @DisplayName("Should create match successfully with valid teams")
-        void create_WithValidTeams_ShouldReturnSavedMatch() {
+        @DisplayName("Should create match successfully with SCHEDULED status")
+        void shouldCreateMatchSuccessfully() {
             // Arrange
-            when(teamRepository.existsById(FIRST_TEAM_ID)).thenReturn(true);
-            when(teamRepository.existsById(SECOND_TEAM_ID)).thenReturn(true);
-            when(matchRepository.save(any(Match.class))).thenReturn(testMatch);
+            when(teamRepository.findByTeamNameIgnoreCase("Mumbai Indians"))
+                    .thenReturn(Optional.of(team1));
+            when(teamRepository.findByTeamNameIgnoreCase("Chennai Super Kings"))
+                    .thenReturn(Optional.of(team2));
+            when(sequenceGeneratorService.generateSequence(Match.SEQUENCE_NAME))
+                    .thenReturn(101);
+            when(matchRepository.save(any(Match.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             // Act
-            Match result = matchService.create(testMatch);
+            MatchResponse response = matchService.create(createRequest);
 
             // Assert
-            assertNotNull(result);
-            assertEquals(MATCH_ID, result.getId());
-            assertEquals("Wankhede Stadium", result.getVenue());
-            assertEquals(FIRST_TEAM_ID, result.getFirstTeam());
-            assertEquals(SECOND_TEAM_ID, result.getSecondTeam());
-            assertNull(result.getResult());
-            verify(teamRepository, times(1)).existsById(FIRST_TEAM_ID);
-            verify(teamRepository, times(1)).existsById(SECOND_TEAM_ID);
-            verify(matchRepository, times(1)).save(testMatch);
+            assertThat(response).isNotNull();
+            assertThat(response.getId()).isEqualTo(101);
+            assertThat(response.getVenue()).isEqualTo("Wankhede Stadium");
+            assertThat(response.getFirstTeamName()).isEqualTo("Mumbai Indians");
+            assertThat(response.getSecondTeamName()).isEqualTo("Chennai Super Kings");
+            assertThat(response.getStatus()).isEqualTo("SCHEDULED");
+            assertThat(response.getResult()).isNull();
+
+            // Verify match was saved
+            verify(matchRepository).save(matchCaptor.capture());
+            Match savedMatch = matchCaptor.getValue();
+            assertThat(savedMatch.getFirstTeam()).isEqualTo(1);
+            assertThat(savedMatch.getSecondTeam()).isEqualTo(2);
         }
 
         @Test
-        @DisplayName("Should create completed match with result")
-        void create_WithResult_ShouldReturnSavedMatchWithResult() {
+        @DisplayName("Should create match with COMPLETED status and result")
+        void shouldCreateMatchWithCompletedStatusAndResult() {
             // Arrange
-            Match completedMatch = createCompletedMatch();
+            createRequest.setStatus("COMPLETED");
+            createRequest.setResult(resultRequest);
 
-            when(teamRepository.existsById(FIRST_TEAM_ID)).thenReturn(true);
-            when(teamRepository.existsById(SECOND_TEAM_ID)).thenReturn(true);
-            when(matchRepository.save(any(Match.class))).thenReturn(completedMatch);
+            when(teamRepository.findByTeamNameIgnoreCase("Mumbai Indians"))
+                    .thenReturn(Optional.of(team1));
+            when(teamRepository.findByTeamNameIgnoreCase("Chennai Super Kings"))
+                    .thenReturn(Optional.of(team2));
+            when(playerRepository.findByNameIgnoreCase("Rohit Sharma"))
+                    .thenReturn(Optional.of(player1));
+            when(sequenceGeneratorService.generateSequence(Match.SEQUENCE_NAME))
+                    .thenReturn(101);
+            when(matchRepository.save(any(Match.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             // Act
-            Match result = matchService.create(completedMatch);
+            MatchResponse response = matchService.create(createRequest);
 
             // Assert
-            assertNotNull(result);
-            assertNotNull(result.getResult());
-            assertEquals(FIRST_TEAM_ID, result.getResult().getWinner());
-            assertEquals("45 runs", result.getResult().getMargin());
-            assertEquals(PLAYER_ID, result.getResult().getManOfTheMatchId());
-            assertEquals("Completed", result.getStatus());
+            assertThat(response).isNotNull();
+            assertThat(response.getStatus()).isEqualTo("COMPLETED");
+            assertThat(response.getResult()).isNotNull();
+            assertThat(response.getResult().getWinner()).isEqualTo("Mumbai Indians");
+            assertThat(response.getResult().getMargin()).isEqualTo("5 wickets");
+            assertThat(response.getResult().getManOfTheMatch()).isEqualTo("Rohit Sharma");
         }
 
         @Test
         @DisplayName("Should throw exception when first team not found")
-        void create_WithInvalidFirstTeam_ShouldThrowException() {
+        void shouldThrowExceptionWhenFirstTeamNotFound() {
             // Arrange
-            when(teamRepository.existsById(FIRST_TEAM_ID)).thenReturn(false);
+            when(teamRepository.findByTeamNameIgnoreCase("Mumbai Indians"))
+                    .thenReturn(Optional.empty());
 
             // Act & Assert
-            InvalidRequestException exception = assertThrows(
-                    InvalidRequestException.class,
-                    () -> matchService.create(testMatch));
+            assertThatThrownBy(() -> matchService.create(createRequest))
+                    .isInstanceOf(InvalidRequestException.class)
+                    .hasMessageContaining("Team not found with name: Mumbai Indians");
 
-            assertTrue(exception.getMessage().contains("firstTeam") ||
-                    exception.getMessage().contains(FIRST_TEAM_ID));
-            verify(teamRepository, times(1)).existsById(FIRST_TEAM_ID);
-            verify(teamRepository, never()).existsById(SECOND_TEAM_ID);
-            verify(matchRepository, never()).save(any(Match.class));
+            verify(matchRepository, never()).save(any());
         }
 
         @Test
         @DisplayName("Should throw exception when second team not found")
-        void create_WithInvalidSecondTeam_ShouldThrowException() {
+        void shouldThrowExceptionWhenSecondTeamNotFound() {
             // Arrange
-            when(teamRepository.existsById(FIRST_TEAM_ID)).thenReturn(true);
-            when(teamRepository.existsById(SECOND_TEAM_ID)).thenReturn(false);
+            when(teamRepository.findByTeamNameIgnoreCase("Mumbai Indians"))
+                    .thenReturn(Optional.of(team1));
+            when(teamRepository.findByTeamNameIgnoreCase("Chennai Super Kings"))
+                    .thenReturn(Optional.empty());
 
             // Act & Assert
-            InvalidRequestException exception = assertThrows(
-                    InvalidRequestException.class,
-                    () -> matchService.create(testMatch));
+            assertThatThrownBy(() -> matchService.create(createRequest))
+                    .isInstanceOf(InvalidRequestException.class)
+                    .hasMessageContaining("Team not found with name: Chennai Super Kings");
 
-            assertTrue(exception.getMessage().contains("secondTeam") ||
-                    exception.getMessage().contains(SECOND_TEAM_ID));
-            verify(matchRepository, never()).save(any(Match.class));
+            verify(matchRepository, never()).save(any());
         }
 
         @Test
-        @DisplayName("Should create match with different margin types")
-        void create_WithDifferentMarginTypes_ShouldCreateSuccessfully() {
+        @DisplayName("Should throw exception when both teams are same")
+        void shouldThrowExceptionWhenBothTeamsAreSame() {
             // Arrange
-            Result wicketsResult = createResult(SECOND_TEAM_ID, "5 wickets", PLAYER_ID);
-            testMatch.setResult(wicketsResult);
-            testMatch.setStatus("Completed");
+            createRequest.setSecondTeamName("Mumbai Indians");
 
-            when(teamRepository.existsById(FIRST_TEAM_ID)).thenReturn(true);
-            when(teamRepository.existsById(SECOND_TEAM_ID)).thenReturn(true);
-            when(matchRepository.save(any(Match.class))).thenReturn(testMatch);
+            when(teamRepository.findByTeamNameIgnoreCase("Mumbai Indians"))
+                    .thenReturn(Optional.of(team1));
+
+            // Act & Assert
+            assertThatThrownBy(() -> matchService.create(createRequest))
+                    .isInstanceOf(InvalidRequestException.class)
+                    .hasMessageContaining("First team and second team cannot be the same");
+
+            verify(matchRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("Should throw exception when COMPLETED status without result")
+        void shouldThrowExceptionWhenCompletedWithoutResult() {
+            // Arrange
+            createRequest.setStatus("COMPLETED");
+            createRequest.setResult(null);
+
+            when(teamRepository.findByTeamNameIgnoreCase("Mumbai Indians"))
+                    .thenReturn(Optional.of(team1));
+            when(teamRepository.findByTeamNameIgnoreCase("Chennai Super Kings"))
+                    .thenReturn(Optional.of(team2));
+
+            // Act & Assert
+            assertThatThrownBy(() -> matchService.create(createRequest))
+                    .isInstanceOf(InvalidRequestException.class)
+                    .hasMessageContaining("Result is required when match status is COMPLETED");
+
+            verify(matchRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("Should throw exception when SCHEDULED status with result")
+        void shouldThrowExceptionWhenScheduledWithResult() {
+            // Arrange
+            createRequest.setStatus("SCHEDULED");
+            createRequest.setResult(resultRequest);
+
+            when(teamRepository.findByTeamNameIgnoreCase("Mumbai Indians"))
+                    .thenReturn(Optional.of(team1));
+            when(teamRepository.findByTeamNameIgnoreCase("Chennai Super Kings"))
+                    .thenReturn(Optional.of(team2));
+
+            // Act & Assert
+            assertThatThrownBy(() -> matchService.create(createRequest))
+                    .isInstanceOf(InvalidRequestException.class)
+                    .hasMessageContaining("Result should not be provided when match status is SCHEDULED");
+
+            verify(matchRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("Should throw exception when winner is not a playing team")
+        void shouldThrowExceptionWhenWinnerNotPlayingTeam() {
+            // Arrange
+            createRequest.setStatus("COMPLETED");
+            resultRequest.setWinner("Royal Challengers Bangalore");
+            createRequest.setResult(resultRequest);
+
+            when(teamRepository.findByTeamNameIgnoreCase("Mumbai Indians"))
+                    .thenReturn(Optional.of(team1));
+            when(teamRepository.findByTeamNameIgnoreCase("Chennai Super Kings"))
+                    .thenReturn(Optional.of(team2));
+
+            // Act & Assert
+            assertThatThrownBy(() -> matchService.create(createRequest))
+                    .isInstanceOf(InvalidRequestException.class)
+                    .hasMessageContaining("Winner must be one of the playing teams");
+
+            verify(matchRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("Should throw exception when man of the match not found")
+        void shouldThrowExceptionWhenManOfTheMatchNotFound() {
+            // Arrange
+            createRequest.setStatus("COMPLETED");
+            resultRequest.setManOfTheMatchName("Unknown Player");
+            createRequest.setResult(resultRequest);
+
+            when(teamRepository.findByTeamNameIgnoreCase("Mumbai Indians"))
+                    .thenReturn(Optional.of(team1));
+            when(teamRepository.findByTeamNameIgnoreCase("Chennai Super Kings"))
+                    .thenReturn(Optional.of(team2));
+            when(playerRepository.findByNameIgnoreCase("Unknown Player"))
+                    .thenReturn(Optional.empty());
+
+            // Act & Assert
+            assertThatThrownBy(() -> matchService.create(createRequest))
+                    .isInstanceOf(InvalidRequestException.class)
+                    .hasMessageContaining("Player not found with name: Unknown Player");
+
+            verify(matchRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("Should throw exception when man of the match not from playing teams")
+        void shouldThrowExceptionWhenManOfTheMatchNotFromPlayingTeams() {
+            // Arrange
+            Player outsidePlayer = Player.builder()
+                    .id(99)
+                    .name("Outside Player")
+                    .teamId(99)
+                    .build();
+
+            createRequest.setStatus("COMPLETED");
+            resultRequest.setManOfTheMatchName("Outside Player");
+            createRequest.setResult(resultRequest);
+
+            when(teamRepository.findByTeamNameIgnoreCase("Mumbai Indians"))
+                    .thenReturn(Optional.of(team1));
+            when(teamRepository.findByTeamNameIgnoreCase("Chennai Super Kings"))
+                    .thenReturn(Optional.of(team2));
+            when(playerRepository.findByNameIgnoreCase("Outside Player"))
+                    .thenReturn(Optional.of(outsidePlayer));
+
+            // Act & Assert
+            assertThatThrownBy(() -> matchService.create(createRequest))
+                    .isInstanceOf(InvalidRequestException.class)
+                    .hasMessageContaining("Man of the match must belong to one of the playing teams");
+
+            verify(matchRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("Should create match with second team as winner")
+        void shouldCreateMatchWithSecondTeamAsWinner() {
+            // Arrange
+            createRequest.setStatus("COMPLETED");
+            resultRequest.setWinner("Chennai Super Kings");
+            resultRequest.setManOfTheMatchName("MS Dhoni");
+            createRequest.setResult(resultRequest);
+
+            when(teamRepository.findByTeamNameIgnoreCase("Mumbai Indians"))
+                    .thenReturn(Optional.of(team1));
+            when(teamRepository.findByTeamNameIgnoreCase("Chennai Super Kings"))
+                    .thenReturn(Optional.of(team2));
+            when(playerRepository.findByNameIgnoreCase("MS Dhoni"))
+                    .thenReturn(Optional.of(player2));
+            when(sequenceGeneratorService.generateSequence(Match.SEQUENCE_NAME))
+                    .thenReturn(101);
+            when(matchRepository.save(any(Match.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             // Act
-            Match result = matchService.create(testMatch);
+            MatchResponse response = matchService.create(createRequest);
 
             // Assert
-            assertNotNull(result);
-            assertEquals("5 wickets", result.getResult().getMargin());
+            assertThat(response.getResult().getWinner()).isEqualTo("Chennai Super Kings");
+            assertThat(response.getResult().getManOfTheMatch()).isEqualTo("MS Dhoni");
         }
     }
 
-    // ==================== GET ALL MATCHES TESTS ====================
+    // ==================== GET ALL TESTS ====================
     @Nested
     @DisplayName("Get All Matches Tests")
     class GetAllMatchesTests {
 
         @Test
-        @DisplayName("Should return all matches including completed ones with results")
-        void getAllMatches_ShouldReturnAllMatchesWithResults() {
+        @DisplayName("Should return all matches")
+        void shouldReturnAllMatches() {
             // Arrange
-            Match completedMatch = createCompletedMatch();
+            Match match1 = Match.builder()
+                    .id(1)
+                    .venue("Venue 1")
+                    .date(LocalDateTime.of(2024, 4, 15, 19, 30)) // CHANGED
+                    .firstTeam(1)
+                    .secondTeam(2)
+                    .status("SCHEDULED")
+                    .build();
 
-            Match scheduledMatch = new Match();
-            scheduledMatch.setId("match456");
-            scheduledMatch.setVenue("Eden Gardens");
-            scheduledMatch.setFirstTeam("team3");
-            scheduledMatch.setSecondTeam("team4");
-            scheduledMatch.setStatus("Scheduled");
-            scheduledMatch.setResult(null);
+            Match match2 = Match.builder()
+                    .id(2)
+                    .venue("Venue 2")
+                    .date(LocalDateTime.of(2024, 4, 16, 19, 30)) // CHANGED
+                    .firstTeam(1)
+                    .secondTeam(2)
+                    .status("COMPLETED")
+                    .result(testResult)
+                    .build();
 
-            List<Match> matches = Arrays.asList(completedMatch, scheduledMatch);
-            when(matchRepository.findAll()).thenReturn(matches);
+            when(matchRepository.findAll()).thenReturn(Arrays.asList(match1, match2));
 
             // Act
-            List<Match> result = matchService.getAllMatches();
+            List<MatchResponse> responses = matchService.getAllMatches();
 
             // Assert
-            assertNotNull(result);
-            assertEquals(2, result.size());
-
-            // Verify completed match has result
-            assertNotNull(result.get(0).getResult());
-            assertEquals(FIRST_TEAM_ID, result.get(0).getResult().getWinner());
-
-            // Verify scheduled match has no result
-            assertNull(result.get(1).getResult());
-
-            verify(matchRepository, times(1)).findAll();
+            assertThat(responses).hasSize(2);
+            assertThat(responses.get(0).getVenue()).isEqualTo("Venue 1");
+            assertThat(responses.get(1).getVenue()).isEqualTo("Venue 2");
         }
 
         @Test
         @DisplayName("Should return empty list when no matches exist")
-        void getAllMatches_WhenNoMatches_ShouldReturnEmptyList() {
+        void shouldReturnEmptyListWhenNoMatches() {
             // Arrange
-            when(matchRepository.findAll()).thenReturn(new ArrayList<>());
+            when(matchRepository.findAll()).thenReturn(Collections.emptyList());
 
             // Act
-            List<Match> result = matchService.getAllMatches();
+            List<MatchResponse> responses = matchService.getAllMatches();
 
             // Assert
-            assertNotNull(result);
-            assertTrue(result.isEmpty());
-            verify(matchRepository, times(1)).findAll();
+            assertThat(responses).isEmpty();
         }
 
         @Test
-        @DisplayName("Should return matches with various result margins")
-        void getAllMatches_WithVariousResults_ShouldReturnAll() {
+        @DisplayName("Should return matches with resolved team names")
+        void shouldReturnMatchesWithResolvedTeamNames() {
             // Arrange
-            Match match1 = createCompletedMatch();
-            match1.getResult().setMargin("50 runs");
-
-            Match match2 = createCompletedMatch();
-            match2.setId("match2");
-            match2.setResult(createResult(SECOND_TEAM_ID, "3 wickets", PLAYER_ID));
-
-            Match match3 = createCompletedMatch();
-            match3.setId("match3");
-            match3.setResult(createResult(FIRST_TEAM_ID, "Super Over", PLAYER_ID));
-
-            when(matchRepository.findAll()).thenReturn(Arrays.asList(match1, match2, match3));
+            when(matchRepository.findAll()).thenReturn(Collections.singletonList(testMatch));
 
             // Act
-            List<Match> result = matchService.getAllMatches();
+            List<MatchResponse> responses = matchService.getAllMatches();
 
             // Assert
-            assertEquals(3, result.size());
-            assertEquals("50 runs", result.get(0).getResult().getMargin());
-            assertEquals("3 wickets", result.get(1).getResult().getMargin());
-            assertEquals("Super Over", result.get(2).getResult().getMargin());
+            assertThat(responses).hasSize(1);
+            assertThat(responses.get(0).getFirstTeamName()).isEqualTo("Mumbai Indians");
+            assertThat(responses.get(0).getSecondTeamName()).isEqualTo("Chennai Super Kings");
         }
     }
 
-    // ==================== GET MATCH BY ID TESTS ====================
+    // ==================== GET BY ID TESTS ====================
     @Nested
     @DisplayName("Get Match By ID Tests")
     class GetMatchByIdTests {
 
         @Test
-        @DisplayName("Should return match with result when found")
-        void getMatchById_WhenExistsWithResult_ShouldReturnMatchWithResult() {
+        @DisplayName("Should return match when found")
+        void shouldReturnMatchWhenFound() {
             // Arrange
-            Match completedMatch = createCompletedMatch();
-            when(matchRepository.findById(MATCH_ID)).thenReturn(Optional.of(completedMatch));
+            when(matchRepository.findById(100)).thenReturn(Optional.of(testMatch));
 
             // Act
-            Match result = matchService.getMatchById(MATCH_ID);
+            MatchResponse response = matchService.getMatchById(100);
 
             // Assert
-            assertNotNull(result);
-            assertEquals(MATCH_ID, result.getId());
-            assertNotNull(result.getResult());
-            assertEquals(FIRST_TEAM_ID, result.getResult().getWinner());
-            assertEquals("45 runs", result.getResult().getMargin());
-            assertEquals(PLAYER_ID, result.getResult().getManOfTheMatchId());
-            verify(matchRepository, times(1)).findById(MATCH_ID);
+            assertThat(response).isNotNull();
+            assertThat(response.getId()).isEqualTo(100);
+            assertThat(response.getVenue()).isEqualTo("Wankhede Stadium");
+            assertThat(response.getFirstTeamName()).isEqualTo("Mumbai Indians");
+            assertThat(response.getSecondTeamName()).isEqualTo("Chennai Super Kings");
         }
 
         @Test
-        @DisplayName("Should return match without result when scheduled")
-        void getMatchById_WhenScheduled_ShouldReturnMatchWithoutResult() {
+        @DisplayName("Should throw ResourceNotFoundException when match not found")
+        void shouldThrowExceptionWhenMatchNotFound() {
             // Arrange
-            when(matchRepository.findById(MATCH_ID)).thenReturn(Optional.of(testMatch));
-
-            // Act
-            Match result = matchService.getMatchById(MATCH_ID);
-
-            // Assert
-            assertNotNull(result);
-            assertEquals("Scheduled", result.getStatus());
-            assertNull(result.getResult());
-        }
-
-        @Test
-        @DisplayName("Should throw exception when match not found")
-        void getMatchById_WhenNotExists_ShouldThrowException() {
-            // Arrange
-            when(matchRepository.findById(MATCH_ID)).thenReturn(Optional.empty());
+            when(matchRepository.findById(999)).thenReturn(Optional.empty());
 
             // Act & Assert
-            ResourceNotFoundException exception = assertThrows(
-                    ResourceNotFoundException.class,
-                    () -> matchService.getMatchById(MATCH_ID));
+            assertThatThrownBy(() -> matchService.getMatchById(999))
+                    .isInstanceOf(ResourceNotFoundException.class)
+                    .hasMessageContaining("Match");
+        }
 
-            assertTrue(exception.getMessage().contains("Match") ||
-                    exception.getMessage().contains(MATCH_ID));
+        @Test
+        @DisplayName("Should return match with result details")
+        void shouldReturnMatchWithResultDetails() {
+            // Arrange
+            testMatch.setStatus("COMPLETED");
+            testMatch.setResult(testResult);
+
+            when(matchRepository.findById(100)).thenReturn(Optional.of(testMatch));
+
+            // Act
+            MatchResponse response = matchService.getMatchById(100);
+
+            // Assert
+            assertThat(response.getResult()).isNotNull();
+            assertThat(response.getResult().getWinner()).isEqualTo("Mumbai Indians");
+            assertThat(response.getResult().getMargin()).isEqualTo("5 wickets");
+            assertThat(response.getResult().getManOfTheMatch()).isEqualTo("Rohit Sharma");
         }
     }
 
-    // ==================== UPDATE MATCH TESTS ====================
+    // ==================== UPDATE TESTS ====================
     @Nested
     @DisplayName("Update Match Tests")
     class UpdateMatchTests {
 
         @Test
-        @DisplayName("Should update match with new result")
-        void updateMatch_WithResult_ShouldReturnUpdatedMatchWithResult() {
+        @DisplayName("Should update match successfully")
+        void shouldUpdateMatchSuccessfully() {
             // Arrange
-            Match updatedDetails = createCompletedMatch();
-            updatedDetails.setVenue("Eden Gardens");
-            updatedDetails.setResult(createResult(SECOND_TEAM_ID, "7 wickets", PLAYER_ID));
+            createRequest.setVenue("New Venue");
 
-            when(matchRepository.findById(MATCH_ID)).thenReturn(Optional.of(testMatch));
-            when(teamRepository.existsById(FIRST_TEAM_ID)).thenReturn(true);
-            when(teamRepository.existsById(SECOND_TEAM_ID)).thenReturn(true);
-            when(matchRepository.save(any(Match.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            when(matchRepository.findById(100)).thenReturn(Optional.of(testMatch));
+            when(teamRepository.findByTeamNameIgnoreCase("Mumbai Indians"))
+                    .thenReturn(Optional.of(team1));
+            when(teamRepository.findByTeamNameIgnoreCase("Chennai Super Kings"))
+                    .thenReturn(Optional.of(team2));
+            when(matchRepository.save(any(Match.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             // Act
-            Match result = matchService.updateMatch(MATCH_ID, updatedDetails);
+            MatchResponse response = matchService.updateMatch(100, createRequest);
 
             // Assert
-            assertNotNull(result);
-            assertEquals("Eden Gardens", result.getVenue());
-            assertEquals("Completed", result.getStatus());
-            assertNotNull(result.getResult());
-            assertEquals(SECOND_TEAM_ID, result.getResult().getWinner());
-            assertEquals("7 wickets", result.getResult().getMargin());
+            assertThat(response.getVenue()).isEqualTo("New Venue");
+            verify(matchRepository).save(any(Match.class));
         }
 
         @Test
-        @DisplayName("Should update match from scheduled to completed")
-        void updateMatch_FromScheduledToCompleted_ShouldUpdateWithResult() {
+        @DisplayName("Should update match status to COMPLETED with result")
+        void shouldUpdateMatchStatusToCompletedWithResult() {
             // Arrange
-            Match completedDetails = new Match();
-            completedDetails.setVenue("Wankhede Stadium");
-            completedDetails.setDate(testMatch.getDate());
-            completedDetails.setFirstTeam(FIRST_TEAM_ID);
-            completedDetails.setSecondTeam(SECOND_TEAM_ID);
-            completedDetails.setStatus("Completed");
-            completedDetails.setResult(testResult);
+            createRequest.setStatus("COMPLETED");
+            createRequest.setResult(resultRequest);
 
-            when(matchRepository.findById(MATCH_ID)).thenReturn(Optional.of(testMatch));
-            when(teamRepository.existsById(FIRST_TEAM_ID)).thenReturn(true);
-            when(teamRepository.existsById(SECOND_TEAM_ID)).thenReturn(true);
-            when(matchRepository.save(any(Match.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            when(matchRepository.findById(100)).thenReturn(Optional.of(testMatch));
+            when(teamRepository.findByTeamNameIgnoreCase("Mumbai Indians"))
+                    .thenReturn(Optional.of(team1));
+            when(teamRepository.findByTeamNameIgnoreCase("Chennai Super Kings"))
+                    .thenReturn(Optional.of(team2));
+            when(playerRepository.findByNameIgnoreCase("Rohit Sharma"))
+                    .thenReturn(Optional.of(player1));
+            when(matchRepository.save(any(Match.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             // Act
-            Match result = matchService.updateMatch(MATCH_ID, completedDetails);
+            MatchResponse response = matchService.updateMatch(100, createRequest);
 
             // Assert
-            assertEquals("Completed", result.getStatus());
-            assertNotNull(result.getResult());
-            assertEquals(FIRST_TEAM_ID, result.getResult().getWinner());
+            assertThat(response.getStatus()).isEqualTo("COMPLETED");
+            assertThat(response.getResult()).isNotNull();
         }
 
         @Test
-        @DisplayName("Should update match and clear result")
-        void updateMatch_ClearResult_ShouldReturnMatchWithoutResult() {
+        @DisplayName("Should throw exception when match not found for update")
+        void shouldThrowExceptionWhenMatchNotFoundForUpdate() {
             // Arrange
-            Match existingCompletedMatch = createCompletedMatch();
-
-            Match updateDetails = new Match();
-            updateDetails.setVenue("New Venue");
-            updateDetails.setDate(LocalDateTime.now());
-            updateDetails.setFirstTeam(FIRST_TEAM_ID);
-            updateDetails.setSecondTeam(SECOND_TEAM_ID);
-            updateDetails.setStatus("Cancelled");
-            updateDetails.setResult(null); // Clear result
-
-            when(matchRepository.findById(MATCH_ID)).thenReturn(Optional.of(existingCompletedMatch));
-            when(teamRepository.existsById(FIRST_TEAM_ID)).thenReturn(true);
-            when(teamRepository.existsById(SECOND_TEAM_ID)).thenReturn(true);
-            when(matchRepository.save(any(Match.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-            // Act
-            Match result = matchService.updateMatch(MATCH_ID, updateDetails);
-
-            // Assert
-            assertEquals("Cancelled", result.getStatus());
-            assertNull(result.getResult());
-        }
-
-        @Test
-        @DisplayName("Should throw exception when match not found")
-        void updateMatch_WhenMatchNotExists_ShouldThrowException() {
-            // Arrange
-            when(matchRepository.findById(MATCH_ID)).thenReturn(Optional.empty());
+            when(matchRepository.findById(999)).thenReturn(Optional.empty());
 
             // Act & Assert
-            assertThrows(
-                    ResourceNotFoundException.class,
-                    () -> matchService.updateMatch(MATCH_ID, testMatch));
-
-            verify(matchRepository, never()).save(any(Match.class));
+            assertThatThrownBy(() -> matchService.updateMatch(999, createRequest))
+                    .isInstanceOf(ResourceNotFoundException.class);
         }
 
         @Test
-        @DisplayName("Should throw exception when first team not found during update")
-        void updateMatch_WithInvalidFirstTeam_ShouldThrowException() {
+        @DisplayName("Should throw exception when updating with same teams")
+        void shouldThrowExceptionWhenUpdatingWithSameTeams() {
             // Arrange
-            Match updatedDetails = createCompletedMatch();
-            updatedDetails.setFirstTeam("invalidTeamId123456789012");
+            createRequest.setSecondTeamName("Mumbai Indians");
 
-            when(matchRepository.findById(MATCH_ID)).thenReturn(Optional.of(testMatch));
-            when(teamRepository.existsById("invalidTeamId123456789012")).thenReturn(false);
+            when(matchRepository.findById(100)).thenReturn(Optional.of(testMatch));
+            when(teamRepository.findByTeamNameIgnoreCase("Mumbai Indians"))
+                    .thenReturn(Optional.of(team1));
 
             // Act & Assert
-            assertThrows(
-                    InvalidRequestException.class,
-                    () -> matchService.updateMatch(MATCH_ID, updatedDetails));
+            assertThatThrownBy(() -> matchService.updateMatch(100, createRequest))
+                    .isInstanceOf(InvalidRequestException.class)
+                    .hasMessageContaining("First team and second team cannot be the same");
+        }
 
-            verify(matchRepository, never()).save(any(Match.class));
+        @Test
+        @DisplayName("Should swap teams on update")
+        void shouldSwapTeamsOnUpdate() {
+            // Arrange
+            createRequest.setFirstTeamName("Chennai Super Kings");
+            createRequest.setSecondTeamName("Mumbai Indians");
+
+            when(matchRepository.findById(100)).thenReturn(Optional.of(testMatch));
+            when(teamRepository.findByTeamNameIgnoreCase("Chennai Super Kings"))
+                    .thenReturn(Optional.of(team2));
+            when(teamRepository.findByTeamNameIgnoreCase("Mumbai Indians"))
+                    .thenReturn(Optional.of(team1));
+            when(matchRepository.save(any(Match.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
+
+            // Act
+            MatchResponse response = matchService.updateMatch(100, createRequest);
+
+            // Assert
+            assertThat(response.getFirstTeamName()).isEqualTo("Chennai Super Kings");
+            assertThat(response.getSecondTeamName()).isEqualTo("Mumbai Indians");
         }
     }
 
-    // ==================== PATCH MATCH TESTS ====================
+    // ==================== PATCH TESTS ====================
     @Nested
     @DisplayName("Patch Match Tests")
     class PatchMatchTests {
 
-        @Test
-        @DisplayName("Should patch only result field")
-        void patchMatch_WithOnlyResult_ShouldUpdateOnlyResult() {
-            // Arrange
-            Match patchDetails = new Match();
-            patchDetails.setResult(testResult);
+        private MatchPatchRequest patchRequest;
 
-            when(matchRepository.findById(MATCH_ID)).thenReturn(Optional.of(testMatch));
-            when(matchRepository.save(any(Match.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-            // Act
-            Match result = matchService.patchMatch(MATCH_ID, patchDetails);
-
-            // Assert
-            assertNotNull(result.getResult());
-            assertEquals(FIRST_TEAM_ID, result.getResult().getWinner());
-            assertEquals("45 runs", result.getResult().getMargin());
-            assertEquals(PLAYER_ID, result.getResult().getManOfTheMatchId());
-            assertEquals("Wankhede Stadium", result.getVenue()); // Unchanged
-            assertEquals("Scheduled", result.getStatus()); // Unchanged
+        @BeforeEach
+        void setUpPatchRequest() {
+            patchRequest = new MatchPatchRequest();
         }
 
         @Test
-        @DisplayName("Should patch result with different winner")
-        void patchMatch_WithDifferentWinner_ShouldUpdateResult() {
+        @DisplayName("Should patch only venue")
+        void shouldPatchOnlyVenue() {
             // Arrange
-            Result newResult = createResult(SECOND_TEAM_ID, "3 wickets", PLAYER_ID);
-            Match patchDetails = new Match();
-            patchDetails.setResult(newResult);
-            patchDetails.setStatus("Completed");
+            patchRequest.setVenue("New Venue");
 
-            when(matchRepository.findById(MATCH_ID)).thenReturn(Optional.of(testMatch));
-            when(matchRepository.save(any(Match.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            when(matchRepository.findById(100)).thenReturn(Optional.of(testMatch));
+            when(matchRepository.save(any(Match.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             // Act
-            Match result = matchService.patchMatch(MATCH_ID, patchDetails);
+            MatchResponse response = matchService.patchMatch(100, patchRequest);
 
             // Assert
-            assertEquals(SECOND_TEAM_ID, result.getResult().getWinner());
-            assertEquals("3 wickets", result.getResult().getMargin());
-            assertEquals("Completed", result.getStatus());
+            assertThat(response.getVenue()).isEqualTo("New Venue");
+            assertThat(response.getStatus()).isEqualTo("SCHEDULED");
         }
 
         @Test
-        @DisplayName("Should patch only venue field")
-        void patchMatch_WithOnlyVenue_ShouldUpdateOnlyVenue() {
+        @DisplayName("Should patch only date")
+        void shouldPatchOnlyDate() {
             // Arrange
-            Match patchDetails = new Match();
-            patchDetails.setVenue("New Venue");
+            LocalDateTime newDate = LocalDateTime.of(2024, 5, 20, 15, 0); // CHANGED
+            patchRequest.setDate(newDate);
 
-            when(matchRepository.findById(MATCH_ID)).thenReturn(Optional.of(testMatch));
-            when(matchRepository.save(any(Match.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            when(matchRepository.findById(100)).thenReturn(Optional.of(testMatch));
+            when(matchRepository.save(any(Match.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             // Act
-            Match result = matchService.patchMatch(MATCH_ID, patchDetails);
+            MatchResponse response = matchService.patchMatch(100, patchRequest);
 
             // Assert
-            assertEquals("New Venue", result.getVenue());
-            assertEquals(FIRST_TEAM_ID, result.getFirstTeam()); // Unchanged
-            assertEquals(SECOND_TEAM_ID, result.getSecondTeam()); // Unchanged
-            assertNull(result.getResult()); // Unchanged
-            verify(teamRepository, never()).existsById(anyString());
+            assertThat(response.getDate()).isEqualTo(newDate);
         }
 
         @Test
-        @DisplayName("Should patch only status field")
-        void patchMatch_WithOnlyStatus_ShouldUpdateOnlyStatus() {
+        @DisplayName("Should patch first team")
+        void shouldPatchFirstTeam() {
             // Arrange
-            Match patchDetails = new Match();
-            patchDetails.setStatus("In Progress");
+            Team team3 = Team.builder()
+                    .id(3)
+                    .teamName("Royal Challengers Bangalore")
+                    .build();
 
-            when(matchRepository.findById(MATCH_ID)).thenReturn(Optional.of(testMatch));
-            when(matchRepository.save(any(Match.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            patchRequest.setFirstTeamName("Royal Challengers Bangalore");
+
+            when(matchRepository.findById(100)).thenReturn(Optional.of(testMatch));
+            when(teamRepository.findByTeamNameIgnoreCase("Royal Challengers Bangalore"))
+                    .thenReturn(Optional.of(team3));
+            when(teamRepository.findById(3)).thenReturn(Optional.of(team3));
+            when(matchRepository.save(any(Match.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             // Act
-            Match result = matchService.patchMatch(MATCH_ID, patchDetails);
+            MatchResponse response = matchService.patchMatch(100, patchRequest);
 
             // Assert
-            assertEquals("In Progress", result.getStatus());
-            assertEquals("Wankhede Stadium", result.getVenue()); // Unchanged
+            assertThat(response.getFirstTeamName()).isEqualTo("Royal Challengers Bangalore");
+            assertThat(response.getSecondTeamName()).isEqualTo("Chennai Super Kings");
         }
 
         @Test
-        @DisplayName("Should patch first team with validation")
-        void patchMatch_WithFirstTeam_ShouldValidateAndUpdate() {
+        @DisplayName("Should patch second team")
+        void shouldPatchSecondTeam() {
             // Arrange
-            String newTeamId = "64a1b2c3d4e5f6g7h8i9j0k9";
-            Match patchDetails = new Match();
-            patchDetails.setFirstTeam(newTeamId);
+            Team team3 = Team.builder()
+                    .id(3)
+                    .teamName("Royal Challengers Bangalore")
+                    .build();
 
-            when(matchRepository.findById(MATCH_ID)).thenReturn(Optional.of(testMatch));
-            when(teamRepository.existsById(newTeamId)).thenReturn(true);
-            when(matchRepository.save(any(Match.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            patchRequest.setSecondTeamName("Royal Challengers Bangalore");
+
+            when(matchRepository.findById(100)).thenReturn(Optional.of(testMatch));
+            when(teamRepository.findByTeamNameIgnoreCase("Royal Challengers Bangalore"))
+                    .thenReturn(Optional.of(team3));
+            when(teamRepository.findById(3)).thenReturn(Optional.of(team3));
+            when(matchRepository.save(any(Match.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             // Act
-            Match result = matchService.patchMatch(MATCH_ID, patchDetails);
+            MatchResponse response = matchService.patchMatch(100, patchRequest);
 
             // Assert
-            assertEquals(newTeamId, result.getFirstTeam());
-            assertEquals(SECOND_TEAM_ID, result.getSecondTeam()); // Unchanged
-            verify(teamRepository, times(1)).existsById(newTeamId);
+            assertThat(response.getFirstTeamName()).isEqualTo("Mumbai Indians");
+            assertThat(response.getSecondTeamName()).isEqualTo("Royal Challengers Bangalore");
         }
 
         @Test
-        @DisplayName("Should throw exception when patching with invalid first team")
-        void patchMatch_WithInvalidFirstTeam_ShouldThrowException() {
+        @DisplayName("Should throw exception when patching first team to same as second")
+        void shouldThrowExceptionWhenPatchingFirstTeamToSameAsSecond() {
             // Arrange
-            String invalidTeamId = "invalidTeamId123456789012";
-            Match patchDetails = new Match();
-            patchDetails.setFirstTeam(invalidTeamId);
+            patchRequest.setFirstTeamName("Chennai Super Kings");
 
-            when(matchRepository.findById(MATCH_ID)).thenReturn(Optional.of(testMatch));
-            when(teamRepository.existsById(invalidTeamId)).thenReturn(false);
+            when(matchRepository.findById(100)).thenReturn(Optional.of(testMatch));
+            when(teamRepository.findByTeamNameIgnoreCase("Chennai Super Kings"))
+                    .thenReturn(Optional.of(team2));
 
             // Act & Assert
-            InvalidRequestException exception = assertThrows(
-                    InvalidRequestException.class,
-                    () -> matchService.patchMatch(MATCH_ID, patchDetails));
-
-            assertTrue(exception.getMessage().contains(invalidTeamId));
-            verify(matchRepository, never()).save(any(Match.class));
+            assertThatThrownBy(() -> matchService.patchMatch(100, patchRequest))
+                    .isInstanceOf(InvalidRequestException.class)
+                    .hasMessageContaining("First team and second team cannot be the same");
         }
 
         @Test
-        @DisplayName("Should patch multiple fields including result")
-        void patchMatch_WithMultipleFieldsAndResult_ShouldUpdateAll() {
+        @DisplayName("Should throw exception when patching second team to same as first")
+        void shouldThrowExceptionWhenPatchingSecondTeamToSameAsFirst() {
             // Arrange
-            Match patchDetails = new Match();
-            patchDetails.setVenue("Updated Venue");
-            patchDetails.setStatus("Completed");
-            patchDetails.setResult(createResult(FIRST_TEAM_ID, "100 runs", PLAYER_ID));
+            patchRequest.setSecondTeamName("Mumbai Indians");
 
-            when(matchRepository.findById(MATCH_ID)).thenReturn(Optional.of(testMatch));
-            when(matchRepository.save(any(Match.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-            // Act
-            Match result = matchService.patchMatch(MATCH_ID, patchDetails);
-
-            // Assert
-            assertEquals("Updated Venue", result.getVenue());
-            assertEquals("Completed", result.getStatus());
-            assertNotNull(result.getResult());
-            assertEquals("100 runs", result.getResult().getMargin());
-        }
-
-        @Test
-        @DisplayName("Should throw exception when match not found")
-        void patchMatch_WhenMatchNotExists_ShouldThrowException() {
-            // Arrange
-            Match patchDetails = new Match();
-            patchDetails.setVenue("New Venue");
-
-            when(matchRepository.findById(MATCH_ID)).thenReturn(Optional.empty());
+            when(matchRepository.findById(100)).thenReturn(Optional.of(testMatch));
+            when(teamRepository.findByTeamNameIgnoreCase("Mumbai Indians"))
+                    .thenReturn(Optional.of(team1));
 
             // Act & Assert
-            assertThrows(
-                    ResourceNotFoundException.class,
-                    () -> matchService.patchMatch(MATCH_ID, patchDetails));
-
-            verify(matchRepository, never()).save(any(Match.class));
+            assertThatThrownBy(() -> matchService.patchMatch(100, patchRequest))
+                    .isInstanceOf(InvalidRequestException.class)
+                    .hasMessageContaining("First team and second team cannot be the same");
         }
 
         @Test
-        @DisplayName("Should patch existing match with result to update result")
-        void patchMatch_UpdateExistingResult_ShouldUpdateResult() {
+        @DisplayName("Should patch status to COMPLETED with result")
+        void shouldPatchStatusToCompletedWithResult() {
             // Arrange
-            Match existingMatchWithResult = createCompletedMatch();
+            patchRequest.setStatus("COMPLETED");
+            patchRequest.setResult(resultRequest);
 
-            Result updatedResult = createResult(SECOND_TEAM_ID, "DLS Method", PLAYER_ID);
-            Match patchDetails = new Match();
-            patchDetails.setResult(updatedResult);
-
-            when(matchRepository.findById(MATCH_ID)).thenReturn(Optional.of(existingMatchWithResult));
-            when(matchRepository.save(any(Match.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            when(matchRepository.findById(100)).thenReturn(Optional.of(testMatch));
+            when(playerRepository.findByNameIgnoreCase("Rohit Sharma"))
+                    .thenReturn(Optional.of(player1));
+            when(matchRepository.save(any(Match.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             // Act
-            Match result = matchService.patchMatch(MATCH_ID, patchDetails);
+            MatchResponse response = matchService.patchMatch(100, patchRequest);
 
             // Assert
-            assertEquals(SECOND_TEAM_ID, result.getResult().getWinner());
-            assertEquals("DLS Method", result.getResult().getMargin());
+            assertThat(response.getStatus()).isEqualTo("COMPLETED");
+            assertThat(response.getResult()).isNotNull();
+            assertThat(response.getResult().getWinner()).isEqualTo("Mumbai Indians");
+        }
+
+        @Test
+        @DisplayName("Should throw exception when changing to COMPLETED without result")
+        void shouldThrowExceptionWhenChangingToCompletedWithoutResult() {
+            // Arrange
+            patchRequest.setStatus("COMPLETED");
+
+            when(matchRepository.findById(100)).thenReturn(Optional.of(testMatch));
+
+            // Act & Assert
+            assertThatThrownBy(() -> matchService.patchMatch(100, patchRequest))
+                    .isInstanceOf(InvalidRequestException.class)
+                    .hasMessageContaining("Result is required when changing match status to COMPLETED");
+        }
+
+        @Test
+        @DisplayName("Should clear result when changing status to SCHEDULED")
+        void shouldClearResultWhenChangingToScheduled() {
+            // Arrange
+            testMatch.setStatus("COMPLETED");
+            testMatch.setResult(testResult);
+            patchRequest.setStatus("SCHEDULED");
+
+            when(matchRepository.findById(100)).thenReturn(Optional.of(testMatch));
+            when(matchRepository.save(any(Match.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
+
+            // Act
+            MatchResponse response = matchService.patchMatch(100, patchRequest);
+
+            // Assert
+            assertThat(response.getStatus()).isEqualTo("SCHEDULED");
+            assertThat(response.getResult()).isNull();
+        }
+
+        @Test
+        @DisplayName("Should throw exception when setting result for non-COMPLETED match")
+        void shouldThrowExceptionWhenSettingResultForNonCompletedMatch() {
+            // Arrange
+            patchRequest.setResult(resultRequest);
+
+            when(matchRepository.findById(100)).thenReturn(Optional.of(testMatch));
+
+            // Act & Assert
+            assertThatThrownBy(() -> matchService.patchMatch(100, patchRequest))
+                    .isInstanceOf(InvalidRequestException.class)
+                    .hasMessageContaining("Result can only be set for COMPLETED matches");
+        }
+
+        @Test
+        @DisplayName("Should throw exception when match not found for patch")
+        void shouldThrowExceptionWhenMatchNotFoundForPatch() {
+            // Arrange
+            when(matchRepository.findById(999)).thenReturn(Optional.empty());
+
+            // Act & Assert
+            assertThatThrownBy(() -> matchService.patchMatch(999, patchRequest))
+                    .isInstanceOf(ResourceNotFoundException.class);
+        }
+
+        @Test
+        @DisplayName("Should ignore blank venue on patch")
+        void shouldIgnoreBlankVenueOnPatch() {
+            // Arrange
+            patchRequest.setVenue("   ");
+
+            when(matchRepository.findById(100)).thenReturn(Optional.of(testMatch));
+            when(matchRepository.save(any(Match.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
+
+            // Act
+            MatchResponse response = matchService.patchMatch(100, patchRequest);
+
+            // Assert
+            assertThat(response.getVenue()).isEqualTo("Wankhede Stadium");
+        }
+
+        @Test
+        @DisplayName("Should ignore blank status on patch")
+        void shouldIgnoreBlankStatusOnPatch() {
+            // Arrange
+            patchRequest.setStatus("");
+
+            when(matchRepository.findById(100)).thenReturn(Optional.of(testMatch));
+            when(matchRepository.save(any(Match.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
+
+            // Act
+            MatchResponse response = matchService.patchMatch(100, patchRequest);
+
+            // Assert
+            assertThat(response.getStatus()).isEqualTo("SCHEDULED");
+        }
+
+        @Test
+        @DisplayName("Should update result for already COMPLETED match")
+        void shouldUpdateResultForAlreadyCompletedMatch() {
+            // Arrange
+            testMatch.setStatus("COMPLETED");
+            testMatch.setResult(testResult);
+
+            ResultCreateRequest newResult = new ResultCreateRequest();
+            newResult.setWinner("Chennai Super Kings");
+            newResult.setMargin("10 runs");
+            newResult.setManOfTheMatchName("MS Dhoni");
+
+            patchRequest.setResult(newResult);
+
+            when(matchRepository.findById(100)).thenReturn(Optional.of(testMatch));
+            when(playerRepository.findByNameIgnoreCase("MS Dhoni"))
+                    .thenReturn(Optional.of(player2));
+            when(matchRepository.save(any(Match.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
+
+            // Act
+            MatchResponse response = matchService.patchMatch(100, patchRequest);
+
+            // Assert
+            assertThat(response.getResult().getWinner()).isEqualTo("Chennai Super Kings");
+            assertThat(response.getResult().getMargin()).isEqualTo("10 runs");
+            assertThat(response.getResult().getManOfTheMatch()).isEqualTo("MS Dhoni");
         }
     }
 
-    // ==================== DELETE MATCH TESTS ====================
+    // ==================== DELETE TESTS ====================
     @Nested
     @DisplayName("Delete Match Tests")
     class DeleteMatchTests {
 
         @Test
-        @DisplayName("Should delete match and return it with result")
-        void deleteMatch_WithResult_ShouldReturnDeletedMatchWithResult() {
+        @DisplayName("Should delete match successfully")
+        void shouldDeleteMatchSuccessfully() {
             // Arrange
-            Match completedMatch = createCompletedMatch();
-            when(matchRepository.findById(MATCH_ID)).thenReturn(Optional.of(completedMatch));
-            doNothing().when(matchRepository).deleteById(MATCH_ID);
+            when(matchRepository.findById(100)).thenReturn(Optional.of(testMatch));
 
             // Act
-            Match result = matchService.deleteMatch(MATCH_ID);
+            MatchResponse response = matchService.deleteMatch(100);
 
             // Assert
-            assertNotNull(result);
-            assertEquals(MATCH_ID, result.getId());
-            assertNotNull(result.getResult());
-            assertEquals(FIRST_TEAM_ID, result.getResult().getWinner());
-            assertEquals("45 runs", result.getResult().getMargin());
-            assertEquals(PLAYER_ID, result.getResult().getManOfTheMatchId());
-            verify(matchRepository, times(1)).deleteById(MATCH_ID);
+            assertThat(response).isNotNull();
+            assertThat(response.getId()).isEqualTo(100);
+            assertThat(response.getVenue()).isEqualTo("Wankhede Stadium");
+
+            verify(matchRepository).deleteById(100);
         }
 
         @Test
-        @DisplayName("Should delete scheduled match without result")
-        void deleteMatch_WithoutResult_ShouldReturnDeletedMatch() {
+        @DisplayName("Should delete match with result")
+        void shouldDeleteMatchWithResult() {
             // Arrange
-            when(matchRepository.findById(MATCH_ID)).thenReturn(Optional.of(testMatch));
-            doNothing().when(matchRepository).deleteById(MATCH_ID);
+            testMatch.setStatus("COMPLETED");
+            testMatch.setResult(testResult);
+
+            when(matchRepository.findById(100)).thenReturn(Optional.of(testMatch));
 
             // Act
-            Match result = matchService.deleteMatch(MATCH_ID);
+            MatchResponse response = matchService.deleteMatch(100);
 
             // Assert
-            assertNotNull(result);
-            assertEquals("Scheduled", result.getStatus());
-            assertNull(result.getResult());
-            verify(matchRepository, times(1)).deleteById(MATCH_ID);
+            assertThat(response.getResult()).isNotNull();
+            assertThat(response.getResult().getWinner()).isEqualTo("Mumbai Indians");
+
+            verify(matchRepository).deleteById(100);
         }
 
         @Test
-        @DisplayName("Should throw exception when deleting non-existent match")
-        void deleteMatch_WhenNotExists_ShouldThrowException() {
+        @DisplayName("Should throw exception when match not found for delete")
+        void shouldThrowExceptionWhenMatchNotFoundForDelete() {
             // Arrange
-            when(matchRepository.findById(MATCH_ID)).thenReturn(Optional.empty());
+            when(matchRepository.findById(999)).thenReturn(Optional.empty());
 
             // Act & Assert
-            assertThrows(
-                    ResourceNotFoundException.class,
-                    () -> matchService.deleteMatch(MATCH_ID));
+            assertThatThrownBy(() -> matchService.deleteMatch(999))
+                    .isInstanceOf(ResourceNotFoundException.class);
 
-            verify(matchRepository, never()).deleteById(anyString());
+            verify(matchRepository, never()).deleteById(anyInt());
         }
     }
 
-    // ==================== RESULT-SPECIFIC TESTS ====================
+    // ==================== HELPER METHOD TESTS ====================
     @Nested
-    @DisplayName("Result-Specific Tests")
-    class ResultSpecificTests {
+    @DisplayName("Helper Method Tests")
+    class HelperMethodTests {
 
         @Test
-        @DisplayName("Should handle result with runs margin")
-        void result_WithRunsMargin_ShouldBeHandledCorrectly() {
+        @DisplayName("Should handle null team ID in getTeamName")
+        void shouldHandleNullTeamIdInGetTeamName() {
             // Arrange
-            Result runsResult = createResult(FIRST_TEAM_ID, "156 runs", PLAYER_ID);
-            testMatch.setResult(runsResult);
-            testMatch.setStatus("Completed");
+            testMatch.setFirstTeam(null);
 
-            when(teamRepository.existsById(FIRST_TEAM_ID)).thenReturn(true);
-            when(teamRepository.existsById(SECOND_TEAM_ID)).thenReturn(true);
-            when(matchRepository.save(any(Match.class))).thenReturn(testMatch);
+            when(matchRepository.findById(100)).thenReturn(Optional.of(testMatch));
 
             // Act
-            Match result = matchService.create(testMatch);
+            MatchResponse response = matchService.getMatchById(100);
 
             // Assert
-            assertEquals("156 runs", result.getResult().getMargin());
+            assertThat(response.getFirstTeamName()).isNull();
         }
 
         @Test
-        @DisplayName("Should handle result with wickets margin")
-        void result_WithWicketsMargin_ShouldBeHandledCorrectly() {
+        @DisplayName("Should handle team not found in getTeamName")
+        void shouldHandleTeamNotFoundInGetTeamName() {
             // Arrange
-            Result wicketsResult = createResult(SECOND_TEAM_ID, "8 wickets", PLAYER_ID);
-            testMatch.setResult(wicketsResult);
-            testMatch.setStatus("Completed");
+            testMatch.setFirstTeam(999);
 
-            when(teamRepository.existsById(FIRST_TEAM_ID)).thenReturn(true);
-            when(teamRepository.existsById(SECOND_TEAM_ID)).thenReturn(true);
-            when(matchRepository.save(any(Match.class))).thenReturn(testMatch);
+            when(matchRepository.findById(100)).thenReturn(Optional.of(testMatch));
+            when(teamRepository.findById(999)).thenReturn(Optional.empty());
 
             // Act
-            Match result = matchService.create(testMatch);
+            MatchResponse response = matchService.getMatchById(100);
 
             // Assert
-            assertEquals("8 wickets", result.getResult().getMargin());
-            assertEquals(SECOND_TEAM_ID, result.getResult().getWinner());
+            assertThat(response.getFirstTeamName()).isNull();
         }
 
         @Test
-        @DisplayName("Should handle result with Super Over")
-        void result_WithSuperOver_ShouldBeHandledCorrectly() {
+        @DisplayName("Should handle null player ID in getPlayerName")
+        void shouldHandleNullPlayerIdInGetPlayerName() {
             // Arrange
-            Result superOverResult = createResult(FIRST_TEAM_ID, "Super Over", PLAYER_ID);
-            testMatch.setResult(superOverResult);
-            testMatch.setStatus("Completed");
-
-            when(teamRepository.existsById(FIRST_TEAM_ID)).thenReturn(true);
-            when(teamRepository.existsById(SECOND_TEAM_ID)).thenReturn(true);
-            when(matchRepository.save(any(Match.class))).thenReturn(testMatch);
-
-            // Act
-            Match result = matchService.create(testMatch);
-
-            // Assert
-            assertEquals("Super Over", result.getResult().getMargin());
-        }
-
-        @Test
-        @DisplayName("Should handle result with DLS Method")
-        void result_WithDLSMethod_ShouldBeHandledCorrectly() {
-            // Arrange
-            Result dlsResult = createResult(SECOND_TEAM_ID, "DLS Method", PLAYER_ID);
-            testMatch.setResult(dlsResult);
-            testMatch.setStatus("Completed");
-
-            when(teamRepository.existsById(FIRST_TEAM_ID)).thenReturn(true);
-            when(teamRepository.existsById(SECOND_TEAM_ID)).thenReturn(true);
-            when(matchRepository.save(any(Match.class))).thenReturn(testMatch);
-
-            // Act
-            Match result = matchService.create(testMatch);
-
-            // Assert
-            assertEquals("DLS Method", result.getResult().getMargin());
-        }
-
-        @Test
-        @DisplayName("Should verify all Result fields are preserved")
-        void result_AllFields_ShouldBePreserved() {
-            // Arrange
-            String winnerId = "64a1b2c3d4e5f6g7h8i9j0k5";
-            String motmId = "64a1b2c3d4e5f6g7h8i9j0k6";
-            Result fullResult = Result.builder()
-                    .winner(winnerId)
-                    .margin("25 runs")
-                    .manOfTheMatchId(motmId)
+            Result resultWithNullPlayer = Result.builder()
+                    .winner(1)
+                    .margin("5 wickets")
+                    .manOfTheMatchId(null)
                     .build();
 
-            testMatch.setResult(fullResult);
-            testMatch.setStatus("Completed");
+            testMatch.setStatus("COMPLETED");
+            testMatch.setResult(resultWithNullPlayer);
 
-            when(teamRepository.existsById(FIRST_TEAM_ID)).thenReturn(true);
-            when(teamRepository.existsById(SECOND_TEAM_ID)).thenReturn(true);
-            when(matchRepository.save(any(Match.class))).thenReturn(testMatch);
+            when(matchRepository.findById(100)).thenReturn(Optional.of(testMatch));
 
             // Act
-            Match result = matchService.create(testMatch);
+            MatchResponse response = matchService.getMatchById(100);
 
             // Assert
-            assertNotNull(result.getResult());
-            assertEquals(winnerId, result.getResult().getWinner());
-            assertEquals("25 runs", result.getResult().getMargin());
-            assertEquals(motmId, result.getResult().getManOfTheMatchId());
+            assertThat(response.getResult().getManOfTheMatch()).isNull();
+        }
+
+        @Test
+        @DisplayName("Should handle player not found in getPlayerName")
+        void shouldHandlePlayerNotFoundInGetPlayerName() {
+            // Arrange
+            Result resultWithUnknownPlayer = Result.builder()
+                    .winner(1)
+                    .margin("5 wickets")
+                    .manOfTheMatchId(999)
+                    .build();
+
+            testMatch.setStatus("COMPLETED");
+            testMatch.setResult(resultWithUnknownPlayer);
+
+            when(matchRepository.findById(100)).thenReturn(Optional.of(testMatch));
+            when(playerRepository.findById(999)).thenReturn(Optional.empty());
+
+            // Act
+            MatchResponse response = matchService.getMatchById(100);
+
+            // Assert
+            assertThat(response.getResult().getManOfTheMatch()).isNull();
         }
     }
 
-    // ==================== EDGE CASES TESTS ====================
+    // ==================== EDGE CASE TESTS ====================
     @Nested
-    @DisplayName("Edge Cases Tests")
-    class EdgeCasesTests {
+    @DisplayName("Edge Case Tests")
+    class EdgeCaseTests {
 
         @Test
-        @DisplayName("Should handle match with null result")
-        void create_WithNullResult_ShouldCreateSuccessfully() {
+        @DisplayName("Should handle case-insensitive team name in create")
+        void shouldHandleCaseInsensitiveTeamNameInCreate() {
             // Arrange
-            testMatch.setResult(null);
-            when(teamRepository.existsById(FIRST_TEAM_ID)).thenReturn(true);
-            when(teamRepository.existsById(SECOND_TEAM_ID)).thenReturn(true);
-            when(matchRepository.save(any(Match.class))).thenReturn(testMatch);
+            createRequest.setFirstTeamName("MUMBAI INDIANS");
+            createRequest.setSecondTeamName("chennai super kings");
+
+            when(teamRepository.findByTeamNameIgnoreCase("MUMBAI INDIANS"))
+                    .thenReturn(Optional.of(team1));
+            when(teamRepository.findByTeamNameIgnoreCase("chennai super kings"))
+                    .thenReturn(Optional.of(team2));
+            when(sequenceGeneratorService.generateSequence(Match.SEQUENCE_NAME))
+                    .thenReturn(101);
+            when(matchRepository.save(any(Match.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             // Act
-            Match result = matchService.create(testMatch);
+            MatchResponse response = matchService.create(createRequest);
 
             // Assert
-            assertNotNull(result);
-            assertNull(result.getResult());
+            assertThat(response).isNotNull();
+            assertThat(response.getFirstTeamName()).isEqualTo("Mumbai Indians");
+            assertThat(response.getSecondTeamName()).isEqualTo("Chennai Super Kings");
         }
 
         @Test
-        @DisplayName("Should handle empty patch - no changes")
-        void patchMatch_WithNoFields_ShouldReturnUnchangedMatch() {
+        @DisplayName("Should handle case-insensitive winner name in result")
+        void shouldHandleCaseInsensitiveWinnerNameInResult() {
             // Arrange
-            Match existingMatchWithResult = createCompletedMatch();
-            Match emptyPatch = new Match();
+            createRequest.setStatus("COMPLETED");
+            resultRequest.setWinner("MUMBAI INDIANS");
+            createRequest.setResult(resultRequest);
 
-            when(matchRepository.findById(MATCH_ID)).thenReturn(Optional.of(existingMatchWithResult));
-            when(matchRepository.save(any(Match.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            when(teamRepository.findByTeamNameIgnoreCase("Mumbai Indians"))
+                    .thenReturn(Optional.of(team1));
+            when(teamRepository.findByTeamNameIgnoreCase("Chennai Super Kings"))
+                    .thenReturn(Optional.of(team2));
+            when(playerRepository.findByNameIgnoreCase("Rohit Sharma"))
+                    .thenReturn(Optional.of(player1));
+            when(sequenceGeneratorService.generateSequence(Match.SEQUENCE_NAME))
+                    .thenReturn(101);
+            when(matchRepository.save(any(Match.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             // Act
-            Match result = matchService.patchMatch(MATCH_ID, emptyPatch);
+            MatchResponse response = matchService.create(createRequest);
 
             // Assert
-            assertEquals("Wankhede Stadium", result.getVenue());
-            assertEquals(FIRST_TEAM_ID, result.getFirstTeam());
-            assertNotNull(result.getResult());
-            assertEquals(FIRST_TEAM_ID, result.getResult().getWinner());
+            assertThat(response.getResult().getWinner()).isEqualTo("Mumbai Indians");
         }
 
         @Test
-        @DisplayName("Should verify repository interaction order")
-        void create_ShouldValidateTeamsBeforeSaving() {
+        @DisplayName("Should handle multiple patches simultaneously")
+        void shouldHandleMultiplePatchesSimultaneously() {
             // Arrange
-            when(teamRepository.existsById(FIRST_TEAM_ID)).thenReturn(true);
-            when(teamRepository.existsById(SECOND_TEAM_ID)).thenReturn(true);
-            when(matchRepository.save(any(Match.class))).thenReturn(testMatch);
+            MatchPatchRequest patchRequest = new MatchPatchRequest();
+            patchRequest.setVenue("New Venue");
+            patchRequest.setDate(LocalDateTime.of(2024, 6, 15, 20, 0)); // CHANGED
+            patchRequest.setStatus("COMPLETED");
+            patchRequest.setResult(resultRequest);
+
+            when(matchRepository.findById(100)).thenReturn(Optional.of(testMatch));
+            when(playerRepository.findByNameIgnoreCase("Rohit Sharma"))
+                    .thenReturn(Optional.of(player1));
+            when(matchRepository.save(any(Match.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             // Act
-            matchService.create(testMatch);
+            MatchResponse response = matchService.patchMatch(100, patchRequest);
 
-            // Assert - Verify order
-            var inOrder = inOrder(teamRepository, matchRepository);
-            inOrder.verify(teamRepository).existsById(FIRST_TEAM_ID);
-            inOrder.verify(teamRepository).existsById(SECOND_TEAM_ID);
-            inOrder.verify(matchRepository).save(any(Match.class));
+            // Assert
+            assertThat(response.getVenue()).isEqualTo("New Venue");
+            assertThat(response.getDate()).isEqualTo(LocalDateTime.of(2024, 6, 15, 20, 0));
+            assertThat(response.getStatus()).isEqualTo("COMPLETED");
+            assertThat(response.getResult()).isNotNull();
         }
 
         @Test
-        @DisplayName("Should handle transition from completed to cancelled")
-        void updateMatch_FromCompletedToCancelled_ShouldClearResult() {
+        @DisplayName("Should handle man of match from second team")
+        void shouldHandleManOfMatchFromSecondTeam() {
             // Arrange
-            Match existingCompletedMatch = createCompletedMatch();
+            createRequest.setStatus("COMPLETED");
+            resultRequest.setWinner("Mumbai Indians");
+            resultRequest.setManOfTheMatchName("MS Dhoni");
+            createRequest.setResult(resultRequest);
 
-            Match cancelledDetails = new Match();
-            cancelledDetails.setVenue("Wankhede Stadium");
-            cancelledDetails.setDate(LocalDateTime.now());
-            cancelledDetails.setFirstTeam(FIRST_TEAM_ID);
-            cancelledDetails.setSecondTeam(SECOND_TEAM_ID);
-            cancelledDetails.setStatus("Cancelled");
-            cancelledDetails.setResult(null);
-
-            when(matchRepository.findById(MATCH_ID)).thenReturn(Optional.of(existingCompletedMatch));
-            when(teamRepository.existsById(FIRST_TEAM_ID)).thenReturn(true);
-            when(teamRepository.existsById(SECOND_TEAM_ID)).thenReturn(true);
-            when(matchRepository.save(any(Match.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            when(teamRepository.findByTeamNameIgnoreCase("Mumbai Indians"))
+                    .thenReturn(Optional.of(team1));
+            when(teamRepository.findByTeamNameIgnoreCase("Chennai Super Kings"))
+                    .thenReturn(Optional.of(team2));
+            when(playerRepository.findByNameIgnoreCase("MS Dhoni"))
+                    .thenReturn(Optional.of(player2));
+            when(sequenceGeneratorService.generateSequence(Match.SEQUENCE_NAME))
+                    .thenReturn(101);
+            when(matchRepository.save(any(Match.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
 
             // Act
-            Match result = matchService.updateMatch(MATCH_ID, cancelledDetails);
+            MatchResponse response = matchService.create(createRequest);
 
             // Assert
-            assertEquals("Cancelled", result.getStatus());
-            assertNull(result.getResult());
-        }
-    }
-
-    // ==================== VERIFICATION TESTS ====================
-    @Nested
-    @DisplayName("Repository Interaction Verification Tests")
-    class VerificationTests {
-
-        @Test
-        @DisplayName("Should not interact with teamRepository in getAllMatches")
-        void getAllMatches_ShouldNotInteractWithTeamRepository() {
-            // Arrange
-            when(matchRepository.findAll()).thenReturn(Arrays.asList(testMatch));
-
-            // Act
-            matchService.getAllMatches();
-
-            // Assert
-            verifyNoInteractions(teamRepository);
-        }
-
-        @Test
-        @DisplayName("Should call save exactly once in successful create")
-        void create_Success_ShouldCallSaveOnce() {
-            // Arrange
-            when(teamRepository.existsById(FIRST_TEAM_ID)).thenReturn(true);
-            when(teamRepository.existsById(SECOND_TEAM_ID)).thenReturn(true);
-            when(matchRepository.save(testMatch)).thenReturn(testMatch);
-
-            // Act
-            matchService.create(testMatch);
-
-            // Assert
-            verify(matchRepository, times(1)).save(testMatch);
-        }
-
-        @Test
-        @DisplayName("Should validate both teams in create")
-        void create_ShouldValidateBothTeams() {
-            // Arrange
-            when(teamRepository.existsById(FIRST_TEAM_ID)).thenReturn(true);
-            when(teamRepository.existsById(SECOND_TEAM_ID)).thenReturn(true);
-            when(matchRepository.save(any(Match.class))).thenReturn(testMatch);
-
-            // Act
-            matchService.create(testMatch);
-
-            // Assert
-            verify(teamRepository, times(1)).existsById(FIRST_TEAM_ID);
-            verify(teamRepository, times(1)).existsById(SECOND_TEAM_ID);
+            assertThat(response.getResult().getManOfTheMatch()).isEqualTo("MS Dhoni");
         }
     }
 }
