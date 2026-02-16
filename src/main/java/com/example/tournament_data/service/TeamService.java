@@ -3,7 +3,6 @@ package com.example.tournament_data.service;
 import java.util.List;
 
 import org.bson.Document;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.aggregation.Aggregation;
 import org.springframework.data.mongodb.core.aggregation.AggregationOperation;
@@ -18,18 +17,17 @@ import com.example.tournament_data.model.Team;
 import com.example.tournament_data.repository.PlayerRepository;
 import com.example.tournament_data.repository.TeamRepository;
 
+import lombok.RequiredArgsConstructor;
+
 @Service
+@RequiredArgsConstructor
 public class TeamService {
 
-    @Autowired
-    private TeamRepository teamRepository;
-
-    @Autowired
-    private PlayerRepository playerRepository;
+    private final TeamRepository teamRepository;
+    private final PlayerRepository playerRepository;
 
     // for aggregation
-    @Autowired
-    private MongoTemplate mongoTemplate;
+    private final MongoTemplate mongoTemplate;
 
     public Team create(Team team) {
         // check if captainId is actual player or not
@@ -39,9 +37,9 @@ public class TeamService {
             }
         }
 
-        if(team.getPlayerIds() != null && !team.getPlayerIds().isEmpty()) {
-            for(String playerId : team.getPlayerIds()) {
-                if(!playerRepository.existsById(playerId)) {
+        if (team.getPlayerIds() != null && !team.getPlayerIds().isEmpty()) {
+            for (String playerId : team.getPlayerIds()) {
+                if (!playerRepository.existsById(playerId)) {
                     throw new InvalidRequestException("playerIds", "Player not found with id: " + playerId);
                 }
             }

@@ -2,7 +2,6 @@ package com.example.tournament_data.service;
 
 import java.util.List;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import com.example.tournament_data.exception.InvalidRequestException;
@@ -12,14 +11,15 @@ import com.example.tournament_data.model.Team;
 import com.example.tournament_data.repository.PlayerRepository;
 import com.example.tournament_data.repository.TeamRepository;
 
-@Service // lombok reqd arg const.
+import lombok.RequiredArgsConstructor;
+
+@Service
+@RequiredArgsConstructor // lombok reqd arg const.
 public class PlayerService {
 
-    @Autowired  // -> use sonar plugin
-    private PlayerRepository playerRepository;
-
-    @Autowired
-    private TeamRepository teamRepository;
+    // -> use sonar plugin
+    private final PlayerRepository playerRepository;
+    private final TeamRepository teamRepository;
 
     public Player create(Player player) {
         Team team = null;

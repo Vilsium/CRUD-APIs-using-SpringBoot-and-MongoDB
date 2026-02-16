@@ -2,7 +2,6 @@ package com.example.tournament_data.service;
 
 import java.util.List;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import com.example.tournament_data.exception.InvalidRequestException;
@@ -11,13 +10,14 @@ import com.example.tournament_data.model.Match;
 import com.example.tournament_data.repository.MatchRepository;
 import com.example.tournament_data.repository.TeamRepository;
 
-@Service
-public class MatchService {
-    @Autowired
-    private MatchRepository matchRepository;
+import lombok.RequiredArgsConstructor;
 
-    @Autowired
-    private TeamRepository teamRepository;
+@Service
+@RequiredArgsConstructor
+public class MatchService {
+
+    private final MatchRepository matchRepository;
+    private final TeamRepository teamRepository;
 
     public Match create(Match match) {
         if (!teamRepository.existsById(match.getFirstTeam())) {

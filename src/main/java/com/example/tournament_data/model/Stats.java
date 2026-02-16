@@ -2,8 +2,16 @@ package com.example.tournament_data.model;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.PositiveOrZero;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
 @Schema(description = "Player's career statistics")
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class Stats {
 
     @PositiveOrZero(message = "Matches cannot be negative")
@@ -21,53 +29,4 @@ public class Stats {
     @PositiveOrZero(message = "Catches cannot be negative")
     @Schema(description = "Total catches taken in career", example = "80", minimum = "0")
     private Integer catchesTaken;
-
-    public Stats() {
-    }
-
-    public Stats(Integer matchesPlayed, Integer runsScored, Integer wicketsTaken, Integer catchesTaken) {
-        this.matchesPlayed = matchesPlayed;
-        this.runsScored = runsScored;
-        this.wicketsTaken = wicketsTaken;
-        this.catchesTaken = catchesTaken;
-    }
-
-    public Integer getMatchesPlayed() {
-        return matchesPlayed;
-    }
-
-    public void setMatchesPlayed(Integer matchesPlayed) {
-        this.matchesPlayed = matchesPlayed;
-    }
-
-    public Integer getRunsScored() {
-        return runsScored;
-    }
-
-    public void setRunsScored(Integer runsScored) {
-        this.runsScored = runsScored;
-    }
-
-    public Integer getWicketsTaken() {
-        return wicketsTaken;
-    }
-
-    public void setWicketsTaken(Integer wicketsTaken) {
-        this.wicketsTaken = wicketsTaken;
-    }
-
-    public Integer getCatchesTaken() {
-        return catchesTaken;
-    }
-
-    public void setCatchesTaken(Integer catchesTaken) {
-        this.catchesTaken = catchesTaken;
-    }
-
-    @Override
-    public String toString() {
-        return "Stats [matchesPlayed=" + matchesPlayed + ", runsScored=" + runsScored + ", wicketsTaken=" + wicketsTaken
-                + ", catchesTaken=" + catchesTaken + "]";
-    }
-
 }
