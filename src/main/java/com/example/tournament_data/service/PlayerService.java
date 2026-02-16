@@ -12,25 +12,38 @@ import com.example.tournament_data.model.Team;
 import com.example.tournament_data.repository.PlayerRepository;
 import com.example.tournament_data.repository.TeamRepository;
 
-@Service
+@Service // lombok reqd arg const.
 public class PlayerService {
 
-    @Autowired
+    @Autowired  // -> use sonar plugin
     private PlayerRepository playerRepository;
 
     @Autowired
     private TeamRepository teamRepository;
 
     public Player create(Player player) {
+        Team team = null;
+
+        if (player.getTeamId() != null && !player.getTeamId().isEmpty()) {
+            team = teamRepository.findById(player.getTeamId())
+                    .orElseThrow(() -> new InvalidRequestException(
+                            "teamId",
+                            "Team not found with id: " + player.getTeamId()));
+
+            for (String existingPlayerId : team.getPlayerIds()) {
+                Player existingPlayer = playerRepository.findById(existingPlayerId).orElse(null);
+                if (existingPlayer != null && existingPlayer.getName().equalsIgnoreCase(player.getName())) {
+                    throw new InvalidRequestException(
+                            "player",
+                            "Player with name '" + player.getName() + "' already exists in this team");
+                }
+            }
+        }
         Player savedPlayer = playerRepository.save(player);
 
-        if (savedPlayer.getTeamId() != null && !savedPlayer.getTeamId().isEmpty()) {
-            Team team = teamRepository.findById(savedPlayer.getTeamId()).orElseThrow(
-                    () -> new InvalidRequestException("teamId", "Team not found with id: " + savedPlayer.getTeamId()));
-            if (!team.getPlayerIds().contains(savedPlayer.getId())) {
-                team.getPlayerIds().add(savedPlayer.getId());
-                teamRepository.save(team);
-            }
+        if (team != null) {
+            team.getPlayerIds().add(savedPlayer.getId());
+            teamRepository.save(team);
         }
 
         return savedPlayer;
