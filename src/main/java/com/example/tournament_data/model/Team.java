@@ -50,5 +50,6 @@ public class Team {
 
     @Size(max = 25, message = "Team cannot have more than 25 players")
     @Schema(description = "List of player IDs belonging to this team (maximum 25 players allowed)", example = "[\"1\", \"2\"]", maxLength = 25)
+    @Builder.Default
     private List<Integer> playerIds = new ArrayList<>();
 }

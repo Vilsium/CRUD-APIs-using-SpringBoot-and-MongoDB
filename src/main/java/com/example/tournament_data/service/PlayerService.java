@@ -1,7 +1,6 @@
 package com.example.tournament_data.service;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 
@@ -27,6 +26,12 @@ public class PlayerService {
     private final TeamRepository teamRepository;
     private final SequenceGeneratorService sequenceGeneratorService;
 
+    private static final int MAX_TEAM_PLAYERS = 25;
+    private static final String FIELD_NAME = "name";
+    private static final String FIELD_TEAM_NAME = "teamName";
+    private static final String FIELD_TEAM_NOT_FOUND_WITH_NAME = "Team not found with name: ";
+    private static final String FIELD_PLAYER = "Player";
+
     /**
      * Create a new player
      */
@@ -34,8 +39,8 @@ public class PlayerService {
         // Team name is required - find team by name
         Team team = teamRepository.findByTeamNameIgnoreCase(request.getTeamName())
                 .orElseThrow(() -> new InvalidRequestException(
-                        "teamName",
-                        "Team not found with name: " + request.getTeamName()));
+                        FIELD_TEAM_NAME,
+                        FIELD_TEAM_NOT_FOUND_WITH_NAME + request.getTeamName()));
 
         // Check if player with same name already exists in this team
         for (Integer existingPlayerId : team.getPlayerIds()) {
@@ -51,7 +56,7 @@ public class PlayerService {
         // Check if team has reached maximum player limit (25 players)
         if (team.getPlayerIds().size() >= 25) {
             throw new InvalidRequestException(
-                    "teamName",
+                    FIELD_TEAM_NAME,
                     "Team '" + team.getTeamName() + "' has reached maximum player limit of 25");
         }
 
@@ -89,7 +94,7 @@ public class PlayerService {
         return playerRepository.findAll()
                 .stream()
                 .map(this::convertToResponse)
-                .collect(Collectors.toList());
+                .toList();
     }
 
     /**
@@ -97,7 +102,7 @@ public class PlayerService {
      */
     public PlayerResponse getPlayerById(Integer id) {
         Player player = playerRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Player", "id", id));
+                .orElseThrow(() -> new ResourceNotFoundException(FIELD_PLAYER, "id", id));
 
         return convertToResponse(player);
     }
@@ -108,70 +113,72 @@ public class PlayerService {
     public PlayerResponse updatePlayer(Integer id, @Valid PlayerCreateRequest request) {
         // Find existing player
         Player existingPlayer = playerRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Player", "id", id));
+                .orElseThrow(() -> new ResourceNotFoundException(FIELD_PLAYER, "id", id));
 
         // Find team by name
         Team newTeam = teamRepository.findByTeamNameIgnoreCase(request.getTeamName())
                 .orElseThrow(() -> new InvalidRequestException(
-                        "teamName",
-                        "Team not found with name: " + request.getTeamName()));
+                        FIELD_TEAM_NAME,
+                        FIELD_TEAM_NOT_FOUND_WITH_NAME + request.getTeamName()));
 
-        // Check if team is changing
-        Integer oldTeamId = existingPlayer.getTeamId();
-        Integer newTeamId = newTeam.getId();
-
-        // If team is changing, handle the transfer
-        if (oldTeamId != null && !oldTeamId.equals(newTeamId)) {
-            // Remove player from old team
-            teamRepository.findById(oldTeamId).ifPresent(oldTeam -> {
-                oldTeam.getPlayerIds().remove(id);
-                // If player was captain, clear captain
-                if (id.equals(oldTeam.getCaptainId())) {
-                    oldTeam.setCaptainId(null);
-                }
-                teamRepository.save(oldTeam);
-            });
-
-            // Add player to new team
-            if (!newTeam.getPlayerIds().contains(id)) {
-                newTeam.getPlayerIds().add(id);
-                teamRepository.save(newTeam);
-            }
-        } else if (oldTeamId == null) {
-            // Player had no team, add to new team
-            if (!newTeam.getPlayerIds().contains(id)) {
-                newTeam.getPlayerIds().add(id);
-                teamRepository.save(newTeam);
-            }
-        }
-
-        // Check for duplicate name in new team (excluding current player)
-        for (Integer existingPlayerId : newTeam.getPlayerIds()) {
-            if (!existingPlayerId.equals(id)) {
-                Player teamPlayer = playerRepository.findById(existingPlayerId).orElse(null);
-                if (teamPlayer != null && teamPlayer.getName().equalsIgnoreCase(request.getName())) {
-                    throw new InvalidRequestException(
-                            "name",
-                            "Player with name '" + request.getName() + "' already exists in team '"
-                                    + newTeam.getTeamName() + "'");
-                }
-            }
-        }
-
-        // Build Stats
-        Stats stats = buildStats(request.getStats());
-
-        // Update fields
-        existingPlayer.setName(request.getName());
-        existingPlayer.setTeamId(newTeamId);
-        existingPlayer.setRole(request.getRole());
-        existingPlayer.setBattingStyle(request.getBattingStyle());
-        existingPlayer.setBowlingStyle(request.getBowlingStyle());
-        existingPlayer.setStats(stats);
+        handleTeamTransfer(existingPlayer, newTeam, id);
+        validateNameNotDuplicateInTeam(newTeam, request.getName(), id);
+        updatePlayerFields(existingPlayer, request, newTeam.getId());
 
         // Save and return
         Player updatedPlayer = playerRepository.save(existingPlayer);
         return convertToResponse(updatedPlayer);
+    }
+
+    private void handleTeamTransfer(Player player, Team newTeam, Integer playerId) {
+        Integer oldTeamId = player.getTeamId();
+        Integer newTeamId = newTeam.getId();
+
+        if (shouldTransferTeam(oldTeamId, newTeamId)) {
+            removePlayerFromOldTeam(playerId, oldTeamId);
+            addPlayerToTeam(playerId, newTeam);
+        } else if (oldTeamId == null) {
+            addPlayerToTeam(playerId, newTeam);
+        }
+    }
+
+    private boolean shouldTransferTeam(Integer oldTeamId, Integer newTeamId) {
+        return oldTeamId != null && !oldTeamId.equals(newTeamId);
+    }
+
+    private void addPlayerToTeam(Integer playerId, Team team) {
+        if (!team.getPlayerIds().contains(playerId)) {
+            team.getPlayerIds().add(playerId);
+            teamRepository.save(team);
+        }
+    }
+
+// ==================== Validation ====================
+
+    private void validateNameNotDuplicateInTeam(Team team, String name, Integer excludePlayerId) {
+        // Batch fetch all team players (optimized - avoids N+1)
+        List<Player> teamPlayers = playerRepository.findByIdIn(team.getPlayerIds());
+
+        boolean isDuplicate = teamPlayers.stream()
+                .filter(p -> !p.getId().equals(excludePlayerId))
+                .anyMatch(p -> p.getName().equalsIgnoreCase(name));
+
+        if (isDuplicate) {
+            throw new InvalidRequestException(
+                    FIELD_NAME,
+                    "Player with name '" + name + "' already exists in team '" + team.getTeamName() + "'");
+        }
+    }
+
+// ==================== Update Fields ====================
+
+    private void updatePlayerFields(Player player, PlayerCreateRequest request, Integer newTeamId) {
+        player.setName(request.getName());
+        player.setTeamId(newTeamId);
+        player.setRole(request.getRole());
+        player.setBattingStyle(request.getBattingStyle());
+        player.setBowlingStyle(request.getBowlingStyle());
+        player.setStats(buildStats(request.getStats()));
     }
 
     /**
@@ -180,117 +187,185 @@ public class PlayerService {
     public PlayerResponse patchPlayer(Integer id, PlayerPatchRequest request) {
         // Find existing player
         Player existingPlayer = playerRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Player", "id", id));
+                .orElseThrow(() -> new ResourceNotFoundException(FIELD_PLAYER, "id", id));
 
-        // Update name if provided
-        if (request.getName() != null && !request.getName().isBlank()) {
-            // Check for duplicate name in current team
-            if (existingPlayer.getTeamId() != null) {
-                Team currentTeam = teamRepository.findById(existingPlayer.getTeamId()).orElse(null);
-                if (currentTeam != null) {
-                    for (Integer existingPlayerId : currentTeam.getPlayerIds()) {
-                        if (!existingPlayerId.equals(id)) {
-                            Player teamPlayer = playerRepository.findById(existingPlayerId).orElse(null);
-                            if (teamPlayer != null && teamPlayer.getName().equalsIgnoreCase(request.getName())) {
-                                throw new InvalidRequestException(
-                                        "name",
-                                        "Player with name '" + request.getName() + "' already exists in team '"
-                                                + currentTeam.getTeamName() + "'");
-                            }
-                        }
-                    }
-                }
-            }
-            existingPlayer.setName(request.getName());
-        }
-
-        // Update role if provided
-        if (request.getRole() != null && !request.getRole().isBlank()) {
-            existingPlayer.setRole(request.getRole());
-        }
-
-        // Update batting style if provided
-        if (request.getBattingStyle() != null && !request.getBattingStyle().isBlank()) {
-            existingPlayer.setBattingStyle(request.getBattingStyle());
-        }
-
-        // Update bowling style if provided
-        if (request.getBowlingStyle() != null) {
-            existingPlayer.setBowlingStyle(request.getBowlingStyle());
-        }
-
-        // Update team if provided
-        if (request.getTeamName() != null && !request.getTeamName().isBlank()) {
-            Team newTeam = teamRepository.findByTeamNameIgnoreCase(request.getTeamName())
-                    .orElseThrow(() -> new InvalidRequestException(
-                            "teamName",
-                            "Team not found with name: " + request.getTeamName()));
-
-            Integer oldTeamId = existingPlayer.getTeamId();
-            Integer newTeamId = newTeam.getId();
-
-            // Handle team transfer
-            if (oldTeamId == null || !oldTeamId.equals(newTeamId)) {
-                // Remove from old team
-                if (oldTeamId != null) {
-                    teamRepository.findById(oldTeamId).ifPresent(oldTeam -> {
-                        oldTeam.getPlayerIds().remove(id);
-                        if (id.equals(oldTeam.getCaptainId())) {
-                            oldTeam.setCaptainId(null);
-                        }
-                        teamRepository.save(oldTeam);
-                    });
-                }
-
-                // Check team limit
-                if (newTeam.getPlayerIds().size() >= 25) {
-                    throw new InvalidRequestException(
-                            "teamName",
-                            "Team '" + newTeam.getTeamName() + "' has reached maximum player limit of 25");
-                }
-
-                // Add to new team
-                if (!newTeam.getPlayerIds().contains(id)) {
-                    newTeam.getPlayerIds().add(id);
-                    teamRepository.save(newTeam);
-                }
-
-                existingPlayer.setTeamId(newTeamId);
-            }
-        }
-
-        // Update stats if provided
-        if (request.getStats() != null) {
-            Stats existingStats = existingPlayer.getStats();
-            if (existingStats == null) {
-                existingStats = Stats.builder()
-                        .matchesPlayed(0)
-                        .runsScored(0)
-                        .wicketsTaken(0)
-                        .catchesTaken(0)
-                        .build();
-            }
-
-            Stats requestStats = request.getStats();
-            if (requestStats.getMatchesPlayed() != null) {
-                existingStats.setMatchesPlayed(requestStats.getMatchesPlayed());
-            }
-            if (requestStats.getRunsScored() != null) {
-                existingStats.setRunsScored(requestStats.getRunsScored());
-            }
-            if (requestStats.getWicketsTaken() != null) {
-                existingStats.setWicketsTaken(requestStats.getWicketsTaken());
-            }
-            if (requestStats.getCatchesTaken() != null) {
-                existingStats.setCatchesTaken(requestStats.getCatchesTaken());
-            }
-
-            existingPlayer.setStats(existingStats);
-        }
+        updateName(existingPlayer, request.getName(), id);
+        updateBasicFields(existingPlayer, request);
+        updateTeam(existingPlayer, request.getTeamName(), id);
+        updateStats(existingPlayer, request.getStats());
 
         // Save and return
         Player updatedPlayer = playerRepository.save(existingPlayer);
         return convertToResponse(updatedPlayer);
+    }
+
+    private void updateName(Player player, String newName, Integer playerId) {
+        if (newName == null || newName.isBlank()) {
+            return;
+        }
+
+        validateNameNotDuplicateInTeam(player.getTeamId(), newName, playerId);
+        player.setName(newName);
+    }
+
+    private void validateNameNotDuplicateInTeam(Integer teamId, String name, Integer excludePlayerId) {
+        if (teamId == null) {
+            return;
+        }
+
+        Team team = teamRepository.findById(teamId).orElse(null);
+        if (team == null) {
+            return;
+        }
+
+        // Batch fetch all team players
+        List<Player> teamPlayers = playerRepository.findByIdIn(team.getPlayerIds());
+
+        boolean isDuplicate = teamPlayers.stream()
+                .filter(p -> !p.getId().equals(excludePlayerId))
+                .anyMatch(p -> p.getName().equalsIgnoreCase(name));
+
+        if (isDuplicate) {
+            throw new InvalidRequestException(
+                    FIELD_NAME,
+                    "Player with name '" + name + "' already exists in team '" + team.getTeamName() + "'");
+        }
+    }
+
+    // ==================== Update Basic Fields ====================
+
+    private void updateBasicFields(Player player, PlayerPatchRequest request) {
+        updateRole(player, request.getRole());
+        updateBattingStyle(player, request.getBattingStyle());
+        updateBowlingStyle(player, request.getBowlingStyle());
+    }
+
+    private void updateRole(Player player, String role) {
+        if (role != null && !role.isBlank()) {
+            player.setRole(role);
+        }
+    }
+
+    private void updateBattingStyle(Player player, String battingStyle) {
+        if (battingStyle != null && !battingStyle.isBlank()) {
+            player.setBattingStyle(battingStyle);
+        }
+    }
+
+    private void updateBowlingStyle(Player player, String bowlingStyle) {
+        if (bowlingStyle != null) {
+            player.setBowlingStyle(bowlingStyle);
+        }
+    }
+
+    // ==================== Update Team ====================
+
+    private void updateTeam(Player player, String teamName, Integer playerId) {
+        if (teamName == null || teamName.isBlank()) {
+            return;
+        }
+
+        Team newTeam = findTeamByName(teamName);
+        Integer oldTeamId = player.getTeamId();
+        Integer newTeamId = newTeam.getId();
+
+        if (isTeamChanged(oldTeamId, newTeamId)) {
+            transferPlayerToNewTeam(playerId, oldTeamId, newTeam);
+            player.setTeamId(newTeamId);
+        }
+    }
+
+    private Team findTeamByName(String teamName) {
+        return teamRepository.findByTeamNameIgnoreCase(teamName)
+                .orElseThrow(() -> new InvalidRequestException(
+                        FIELD_TEAM_NAME,
+                        FIELD_TEAM_NOT_FOUND_WITH_NAME + teamName));
+    }
+
+    private boolean isTeamChanged(Integer oldTeamId, Integer newTeamId) {
+        return oldTeamId == null || !oldTeamId.equals(newTeamId);
+    }
+
+    private void transferPlayerToNewTeam(Integer playerId, Integer oldTeamId, Team newTeam) {
+        removePlayerFromOldTeam(playerId, oldTeamId);
+        addPlayerToNewTeam(playerId, newTeam);
+    }
+
+    private void removePlayerFromOldTeam(Integer playerId, Integer oldTeamId) {
+        if (oldTeamId == null) {
+            return;
+        }
+
+        teamRepository.findById(oldTeamId).ifPresent(oldTeam -> {
+            oldTeam.getPlayerIds().remove(playerId);
+            clearCaptainIfNeeded(oldTeam, playerId);
+            teamRepository.save(oldTeam);
+        });
+    }
+
+    private void clearCaptainIfNeeded(Team team, Integer playerId) {
+        if (playerId.equals(team.getCaptainId())) {
+            team.setCaptainId(null);
+        }
+    }
+
+    private void addPlayerToNewTeam(Integer playerId, Team newTeam) {
+        validateTeamPlayerLimit(newTeam);
+
+        if (!newTeam.getPlayerIds().contains(playerId)) {
+            newTeam.getPlayerIds().add(playerId);
+            teamRepository.save(newTeam);
+        }
+    }
+
+    private void validateTeamPlayerLimit(Team team) {
+        if (team.getPlayerIds().size() >= MAX_TEAM_PLAYERS) {
+            throw new InvalidRequestException(
+                    FIELD_TEAM_NAME,
+                    "Team '" + team.getTeamName() + "' has reached maximum player limit of " + MAX_TEAM_PLAYERS);
+        }
+    }
+
+    // ==================== Update Stats ====================
+
+    private void updateStats(Player player, Stats requestStats) {
+        if (requestStats == null) {
+            return;
+        }
+
+        Stats existingStats = getOrCreateStats(player);
+        applyStatsUpdates(existingStats, requestStats);
+        player.setStats(existingStats);
+    }
+
+    private Stats getOrCreateStats(Player player) {
+        Stats existingStats = player.getStats();
+
+        if (existingStats == null) {
+            return Stats.builder()
+                    .matchesPlayed(0)
+                    .runsScored(0)
+                    .wicketsTaken(0)
+                    .catchesTaken(0)
+                    .build();
+        }
+
+        return existingStats;
+    }
+
+    private void applyStatsUpdates(Stats existingStats, Stats requestStats) {
+        if (requestStats.getMatchesPlayed() != null) {
+            existingStats.setMatchesPlayed(requestStats.getMatchesPlayed());
+        }
+        if (requestStats.getRunsScored() != null) {
+            existingStats.setRunsScored(requestStats.getRunsScored());
+        }
+        if (requestStats.getWicketsTaken() != null) {
+            existingStats.setWicketsTaken(requestStats.getWicketsTaken());
+        }
+        if (requestStats.getCatchesTaken() != null) {
+            existingStats.setCatchesTaken(requestStats.getCatchesTaken());
+        }
     }
 
     /**
@@ -298,7 +373,7 @@ public class PlayerService {
      */
     public PlayerResponse deletePlayer(Integer id) {
         Player existingPlayer = playerRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Player", "id", id));
+                .orElseThrow(() -> new ResourceNotFoundException(FIELD_PLAYER, "id", id));
 
         // Remove player from team if assigned
         if (existingPlayer.getTeamId() != null) {

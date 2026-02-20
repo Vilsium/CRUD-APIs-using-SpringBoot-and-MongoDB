@@ -1,11 +1,14 @@
 package com.example.tournament_data.exception;
 
+import lombok.Getter;
+
+@Getter
 public class ResourceNotFoundException extends RuntimeException {
     // will handle exception for missing Player or missing Team
 
-    private String resourceName;
-    private String fieldName;
-    private Integer fieldValue;
+    private final String resourceName;
+    private final String fieldName;
+    private final Integer fieldValue;
 
     public ResourceNotFoundException(String resourceName, String fieldName, Integer id) {
         super(String.format("%s was not found with %s: %s", resourceName, fieldName, id));
@@ -14,15 +17,4 @@ public class ResourceNotFoundException extends RuntimeException {
         this.fieldValue = id;
     }
 
-    public String getResourceName() {
-        return resourceName;
-    }
-
-    public String getFieldName() {
-        return fieldName;
-    }
-
-    public Integer getFieldValue() {
-        return fieldValue;
-    }
 }

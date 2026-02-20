@@ -2,8 +2,11 @@ package com.example.tournament_data.service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
+import com.example.tournament_data.dto.*;
 import org.bson.Document;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.aggregation.Aggregation;
@@ -11,10 +14,6 @@ import org.springframework.data.mongodb.core.aggregation.AggregationOperation;
 import org.springframework.data.mongodb.core.aggregation.AggregationResults;
 import org.springframework.stereotype.Service;
 
-import com.example.tournament_data.dto.TeamCreateRequest;
-import com.example.tournament_data.dto.TeamDetailsResponse;
-import com.example.tournament_data.dto.TeamPatchRequest;
-import com.example.tournament_data.dto.TeamResponse;
 import com.example.tournament_data.exception.InvalidRequestException;
 import com.example.tournament_data.exception.ResourceNotFoundException;
 import com.example.tournament_data.model.Player;
@@ -36,6 +35,10 @@ public class TeamService {
     // for aggregation
     private final MongoTemplate mongoTemplate;
 
+    private static final String FIELD_CAPTAIN_NAME = "captainName";
+    private static final String FIELD_PLAYER_NAMES = "playerNames";
+    private static final String FIELD_PLAYERS = "players";
+
     /**
      * Create a new team
      */
@@ -56,7 +59,7 @@ public class TeamService {
             for (String playerName : request.getPlayerNames()) {
                 Player player = playerRepository.findByNameIgnoreCase(playerName)
                         .orElseThrow(() -> new InvalidRequestException(
-                                "playerNames",
+                                FIELD_PLAYER_NAMES,
                                 "Player not found with name: " + playerName));
                 playerIds.add(player.getId());
             }
@@ -67,13 +70,13 @@ public class TeamService {
         if (request.getCaptainName() != null && !request.getCaptainName().isEmpty()) {
             Player captain = playerRepository.findByNameIgnoreCase(request.getCaptainName())
                     .orElseThrow(() -> new InvalidRequestException(
-                            "captainName",
+                            FIELD_CAPTAIN_NAME,
                             "Captain not found with name: " + request.getCaptainName()));
 
             // Validate that captain is part of the team
             if (!playerIds.contains(captain.getId())) {
                 throw new InvalidRequestException(
-                        "captainName",
+                        FIELD_CAPTAIN_NAME,
                         "Captain must be a player in the team");
             }
 
@@ -110,7 +113,7 @@ public class TeamService {
         return teamRepository.findAll()
                 .stream()
                 .map(this::convertToResponse)
-                .collect(Collectors.toList());
+                .toList();
     }
 
     /**
@@ -120,6 +123,13 @@ public class TeamService {
         Team team = teamRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Team", "id", id));
         return convertToResponse(team);
+    }
+
+    /**
+     * Get count of each role in the team
+     */
+    public List<RoleCount> getRoleCount(Integer id) {
+        return playerRepository.findRoleCount(id);
     }
 
     /**
@@ -149,7 +159,7 @@ public class TeamService {
             for (String playerName : request.getPlayerNames()) {
                 Player player = playerRepository.findByNameIgnoreCase(playerName)
                         .orElseThrow(() -> new InvalidRequestException(
-                                "playerNames",
+                                FIELD_PLAYER_NAMES,
                                 "Player not found with name: " + playerName));
                 newPlayerIds.add(player.getId());
             }
@@ -160,12 +170,12 @@ public class TeamService {
         if (request.getCaptainName() != null && !request.getCaptainName().isEmpty()) {
             Player captain = playerRepository.findByNameIgnoreCase(request.getCaptainName())
                     .orElseThrow(() -> new InvalidRequestException(
-                            "captainName",
+                            FIELD_CAPTAIN_NAME,
                             "Captain not found with name: " + request.getCaptainName()));
 
             if (!newPlayerIds.contains(captain.getId())) {
                 throw new InvalidRequestException(
-                        "captainName",
+                        FIELD_CAPTAIN_NAME,
                         "Captain must be a player in the team");
             }
 
@@ -209,95 +219,140 @@ public class TeamService {
         Team existingTeam = teamRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Team", "id", id));
 
-        // Update team name if provided
-        if (request.getTeamName() != null && !request.getTeamName().isBlank()) {
-            // Check if new name already exists
-            teamRepository.findByTeamNameIgnoreCase(request.getTeamName())
-                    .ifPresent(team -> {
-                        if (!team.getId().equals(id)) {
-                            throw new InvalidRequestException(
-                                    "teamName",
-                                    "Team with name '" + request.getTeamName() + "' already exists");
-                        }
-                    });
-            existingTeam.setTeamName(request.getTeamName());
-        }
-
-        // Update home ground if provided
-        if (request.getHomeGround() != null && !request.getHomeGround().isBlank()) {
-            existingTeam.setHomeGround(request.getHomeGround());
-        }
-
-        // Update coach if provided
-        if (request.getCoach() != null && !request.getCoach().isBlank()) {
-            existingTeam.setCoach(request.getCoach());
-        }
-
-        // Update captain if provided
-        if (request.getCaptainName() != null) {
-            if (request.getCaptainName().isBlank()) {
-                // Clear captain
-                existingTeam.setCaptainId(null);
-            } else {
-                Player captain = playerRepository.findByNameIgnoreCase(request.getCaptainName())
-                        .orElseThrow(() -> new InvalidRequestException(
-                                "captainName",
-                                "Captain not found with name: " + request.getCaptainName()));
-
-                if (!existingTeam.getPlayerIds().contains(captain.getId())) {
-                    throw new InvalidRequestException(
-                            "captainName",
-                            "Captain must be a player in the team");
-                }
-
-                existingTeam.setCaptainId(captain.getId());
-            }
-        }
-
-        // Update players if provided
-        if (request.getPlayerNames() != null) {
-            // Get old player IDs
-            List<Integer> oldPlayerIds = new ArrayList<>(existingTeam.getPlayerIds());
-
-            // Convert new player names to IDs
-            List<Integer> newPlayerIds = new ArrayList<>();
-            for (String playerName : request.getPlayerNames()) {
-                Player player = playerRepository.findByNameIgnoreCase(playerName)
-                        .orElseThrow(() -> new InvalidRequestException(
-                                "playerNames",
-                                "Player not found with name: " + playerName));
-                newPlayerIds.add(player.getId());
-            }
-
-            // Validate captain is still in team
-            if (existingTeam.getCaptainId() != null && !newPlayerIds.contains(existingTeam.getCaptainId())) {
-                existingTeam.setCaptainId(null);
-            }
-
-            // Clear teamId for removed players
-            for (Integer oldPlayerId : oldPlayerIds) {
-                if (!newPlayerIds.contains(oldPlayerId)) {
-                    playerRepository.findById(oldPlayerId).ifPresent(player -> {
-                        player.setTeamId(null);
-                        playerRepository.save(player);
-                    });
-                }
-            }
-
-            // Set teamId for new players
-            for (Integer newPlayerId : newPlayerIds) {
-                playerRepository.findById(newPlayerId).ifPresent(player -> {
-                    player.setTeamId(id);
-                    playerRepository.save(player);
-                });
-            }
-
-            existingTeam.setPlayerIds(newPlayerIds);
-        }
+        updateTeamName(existingTeam, request.getTeamName(), id);
+        updateHomeGround(existingTeam, request.getHomeGround());
+        updateCoach(existingTeam, request.getCoach());
+        updatePlayers(existingTeam, request.getPlayerNames(), id);
+        updateCaptain(existingTeam, request.getCaptainName());
 
         Team updatedTeam = teamRepository.save(existingTeam);
         return convertToResponse(updatedTeam);
     }
+
+    private void updateTeamName(Team team, String newName, Integer teamId) {
+        if (newName == null || newName.isBlank()) {
+            return;
+        }
+
+        teamRepository.findByTeamNameIgnoreCase(newName)
+                .ifPresent(existingTeam -> {
+                    if (!existingTeam.getId().equals(teamId)) {
+                        throw new InvalidRequestException(
+                                "teamName",
+                                "Team with name '" + newName + "' already exists");
+                    }
+                });
+
+        team.setTeamName(newName);
+    }
+
+    private void updateHomeGround(Team team, String homeGround) {
+        if (homeGround != null && !homeGround.isBlank()) {
+            team.setHomeGround(homeGround);
+        }
+    }
+
+    private void updateCoach(Team team, String coach) {
+        if (coach != null && !coach.isBlank()) {
+            team.setCoach(coach);
+        }
+    }
+
+    private void updateCaptain(Team team, String captainName) {
+        if (captainName == null) {
+            return;
+        }
+
+        if (captainName.isBlank()) {
+            team.setCaptainId(null);
+            return;
+        }
+
+        Player captain = findPlayerByName(captainName, FIELD_CAPTAIN_NAME, "Captain");
+        validateCaptainInTeam(team, captain);
+        team.setCaptainId(captain.getId());
+    }
+
+    private void validateCaptainInTeam(Team team, Player captain) {
+        if (!team.getPlayerIds().contains(captain.getId())) {
+            throw new InvalidRequestException(
+                    FIELD_CAPTAIN_NAME,
+                    "Captain must be a player in the team");
+        }
+    }
+
+    private void updatePlayers(Team team, List<String> playerNames, Integer teamId) {
+        if (playerNames == null) {
+            return;
+        }
+
+        List<Integer> oldPlayerIds = new ArrayList<>(team.getPlayerIds());
+        List<Integer> newPlayerIds = convertPlayerNamesToIds(playerNames);
+
+        // Clear captain if no longer in team
+        clearCaptainIfNotInTeam(team, newPlayerIds);
+
+        // Update player team associations
+        updatePlayerTeamAssociations(oldPlayerIds, newPlayerIds, teamId);
+
+        team.setPlayerIds(newPlayerIds);
+    }
+
+    private List<Integer> convertPlayerNamesToIds(List<String> playerNames) {
+        return playerNames.stream()
+                .map(name -> findPlayerByName(name, FIELD_PLAYER_NAMES, "Player"))
+                .map(Player::getId)
+                .toList();
+    }
+
+    private Player findPlayerByName(String name, String fieldName, String entityName) {
+        return playerRepository.findByNameIgnoreCase(name)
+                .orElseThrow(() -> new InvalidRequestException(
+                        fieldName,
+                        entityName + " not found with name: " + name));
+    }
+
+    private void clearCaptainIfNotInTeam(Team team, List<Integer> newPlayerIds) {
+        if (team.getCaptainId() != null && !newPlayerIds.contains(team.getCaptainId())) {
+            team.setCaptainId(null);
+        }
+    }
+
+    private void updatePlayerTeamAssociations(List<Integer> oldPlayerIds,
+                                              List<Integer> newPlayerIds,
+                                              Integer teamId) {
+        // Clear teamId for removed players
+        clearTeamIdForRemovedPlayers(oldPlayerIds, newPlayerIds);
+
+        // Set teamId for new players
+        setTeamIdForNewPlayers(newPlayerIds, teamId);
+    }
+
+    private void clearTeamIdForRemovedPlayers(List<Integer> oldPlayerIds,
+                                              List<Integer> newPlayerIds) {
+        oldPlayerIds.stream()
+                .filter(id -> !newPlayerIds.contains(id))
+                .forEach(this::clearPlayerTeamId);
+    }
+
+    private void setTeamIdForNewPlayers(List<Integer> playerIds, Integer teamId) {
+        playerIds.forEach(playerId -> setPlayerTeamId(playerId, teamId));
+    }
+
+    private void clearPlayerTeamId(Integer playerId) {
+        playerRepository.findById(playerId).ifPresent(player -> {
+            player.setTeamId(null);
+            playerRepository.save(player);
+        });
+    }
+
+    private void setPlayerTeamId(Integer playerId, Integer teamId) {
+        playerRepository.findById(playerId).ifPresent(player -> {
+            player.setTeamId(teamId);
+            playerRepository.save(player);
+        });
+    }
+
 
     /**
      * Delete team
@@ -337,10 +392,10 @@ public class TeamService {
         // 2. lookup
         AggregationOperation lookupStage = context -> new Document("$lookup",
                 new Document()
-                        .append("from", "players")
+                        .append("from", FIELD_PLAYERS)
                         .append("localField", "playerIds")
                         .append("foreignField", "_id")
-                        .append("as", "players"));
+                        .append("as", FIELD_PLAYERS));
 
         // 3. addFields
         AggregationOperation addFieldsStage = context -> new Document("$addFields",
@@ -358,7 +413,7 @@ public class TeamService {
         AggregationOperation projectionStage = context -> new Document("$project",
                 new Document()
                         .append("playerIds", 0)
-                        .append("players", 0));
+                        .append(FIELD_PLAYERS, 0));
 
         // making the pipeline
         Aggregation aggregation = Aggregation.newAggregation(
@@ -381,22 +436,29 @@ public class TeamService {
      * Convert Team entity to TeamResponse DTO
      */
     private TeamResponse convertToResponse(Team team) {
-        // Get captain name
         String captainName = null;
-        if (team.getCaptainId() != null) {
-            Player captain = playerRepository.findById(team.getCaptainId()).orElse(null);
-            if (captain != null) {
-                captainName = captain.getName();
-            }
-        }
-
-        // Get player names
         List<String> playerNames = new ArrayList<>();
-        for (Integer playerId : team.getPlayerIds()) {
-            Player player = playerRepository.findById(playerId).orElse(null);
-            if (player != null) {
-                playerNames.add(player.getName());
+
+        // Single DB call for all players (including captain)
+        if (team.getPlayerIds() != null && !team.getPlayerIds().isEmpty()) {
+            List<Player> players = playerRepository.findByIdIn(team.getPlayerIds());
+
+            // Create map for quick lookup
+            Map<Integer, Player> playerMap = players.stream()
+                    .collect(Collectors.toMap(Player::getId, p -> p));
+
+            // Get captain name from map (no extra DB call)
+            if (team.getCaptainId() != null) {
+                Player captain = playerMap.get(team.getCaptainId());
+                captainName = captain != null ? captain.getName() : null;
             }
+
+            // Get player names maintaining order
+            playerNames = team.getPlayerIds().stream()
+                    .map(playerMap::get)
+                    .filter(Objects::nonNull)
+                    .map(Player::getName)
+                    .toList();
         }
 
         return TeamResponse.builder()
@@ -408,4 +470,5 @@ public class TeamService {
                 .playerNames(playerNames)
                 .build();
     }
+
 }

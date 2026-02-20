@@ -1,9 +1,8 @@
 package com.example.tournament_data.service;  
   
-import java.util.List;  
-import java.util.stream.Collectors;  
-  
-import org.springframework.stereotype.Service;  
+import java.util.List;
+
+import org.springframework.stereotype.Service;
   
 import com.example.tournament_data.dto.MatchCreateRequest;  
 import com.example.tournament_data.dto.MatchPatchRequest;  
@@ -30,7 +29,14 @@ public class MatchService {
     private final MatchRepository matchRepository;  
     private final TeamRepository teamRepository;  
     private final PlayerRepository playerRepository;  
-    private final SequenceGeneratorService sequenceGeneratorService;  
+    private final SequenceGeneratorService sequenceGeneratorService;
+
+    private static final String FIELD_FIRST_TEAM_NAME = "firstTeamName";
+    private static final String FIELD_SECOND_TEAM_NAME = "secondTeamName";
+    private static final String FIELD_MATCH = "Match";
+    private static final String FIELD_COMPLETED = "COMPLETED";
+    private static final String FIELD_SCHEDULED = "SCHEDULED";
+    private static final String FIELD_TEAM_NOT_FOUND_WITH_NAME = "Team not found with name: ";
   
     /**  
      * Create a new match  
@@ -38,32 +44,32 @@ public class MatchService {
     public MatchResponse create(@Valid MatchCreateRequest request) {  
         // Find first team by name  
         Team firstTeam = teamRepository.findByTeamNameIgnoreCase(request.getFirstTeamName())  
-                .orElseThrow(() -> new InvalidRequestException(  
-                        "firstTeamName",  
-                        "Team not found with name: " + request.getFirstTeamName()));  
+                .orElseThrow(() -> new InvalidRequestException(
+                        FIELD_FIRST_TEAM_NAME,
+                        FIELD_TEAM_NOT_FOUND_WITH_NAME + request.getFirstTeamName()));
   
         // Find second team by name  
         Team secondTeam = teamRepository.findByTeamNameIgnoreCase(request.getSecondTeamName())  
-                .orElseThrow(() -> new InvalidRequestException(  
-                        "secondTeamName",  
-                        "Team not found with name: " + request.getSecondTeamName()));  
+                .orElseThrow(() -> new InvalidRequestException(
+                        FIELD_SECOND_TEAM_NAME,
+                        FIELD_TEAM_NOT_FOUND_WITH_NAME + request.getSecondTeamName()));
   
         // Validate that both teams are different  
         if (firstTeam.getId().equals(secondTeam.getId())) {  
-            throw new InvalidRequestException(  
-                    "secondTeamName",  
+            throw new InvalidRequestException(
+                    FIELD_SECOND_TEAM_NAME,
                     "First team and second team cannot be the same");  
         }  
   
         // Validate result is provided when status is COMPLETED  
-        if ("COMPLETED".equals(request.getStatus()) && request.getResult() == null) {  
+        if (FIELD_COMPLETED.equals(request.getStatus()) && request.getResult() == null) {
             throw new InvalidRequestException(  
                     "result",  
                     "Result is required when match status is COMPLETED");  
         }  
   
         // Validate result is not provided when status is SCHEDULED  
-        if ("SCHEDULED".equals(request.getStatus()) && request.getResult() != null) {  
+        if (FIELD_SCHEDULED.equals(request.getStatus()) && request.getResult() != null) {
             throw new InvalidRequestException(  
                     "result",  
                     "Result should not be provided when match status is SCHEDULED");  
@@ -101,7 +107,7 @@ public class MatchService {
         return matchRepository.findAll()  
                 .stream()  
                 .map(this::convertToResponse)  
-                .collect(Collectors.toList());  
+                .toList();
     }  
   
     /**  
@@ -109,7 +115,7 @@ public class MatchService {
      */  
     public MatchResponse getMatchById(Integer id) {  
         Match match = matchRepository.findById(id)  
-                .orElseThrow(() -> new ResourceNotFoundException("Match", "id", id));  
+                .orElseThrow(() -> new ResourceNotFoundException(FIELD_MATCH, "id", id));
   
         return convertToResponse(match);  
     }  
@@ -120,36 +126,36 @@ public class MatchService {
     public MatchResponse updateMatch(Integer id, @Valid MatchCreateRequest request) {  
         // Find existing match  
         Match existingMatch = matchRepository.findById(id)  
-                .orElseThrow(() -> new ResourceNotFoundException("Match", "id", id));  
+                .orElseThrow(() -> new ResourceNotFoundException(FIELD_MATCH, "id", id));
   
         // Find first team by name  
         Team firstTeam = teamRepository.findByTeamNameIgnoreCase(request.getFirstTeamName())  
-                .orElseThrow(() -> new InvalidRequestException(  
-                        "firstTeamName",  
-                        "Team not found with name: " + request.getFirstTeamName()));  
+                .orElseThrow(() -> new InvalidRequestException(
+                        FIELD_FIRST_TEAM_NAME,
+                        FIELD_TEAM_NOT_FOUND_WITH_NAME + request.getFirstTeamName()));
   
         // Find second team by name  
         Team secondTeam = teamRepository.findByTeamNameIgnoreCase(request.getSecondTeamName())  
-                .orElseThrow(() -> new InvalidRequestException(  
-                        "secondTeamName",  
-                        "Team not found with name: " + request.getSecondTeamName()));  
+                .orElseThrow(() -> new InvalidRequestException(
+                        FIELD_SECOND_TEAM_NAME,
+                        FIELD_TEAM_NOT_FOUND_WITH_NAME + request.getSecondTeamName()));
   
         // Validate that both teams are different  
         if (firstTeam.getId().equals(secondTeam.getId())) {  
-            throw new InvalidRequestException(  
-                    "secondTeamName",  
+            throw new InvalidRequestException(
+                    FIELD_SECOND_TEAM_NAME,
                     "First team and second team cannot be the same");  
         }  
   
         // Validate result is provided when status is COMPLETED  
-        if ("COMPLETED".equals(request.getStatus()) && request.getResult() == null) {  
+        if (FIELD_COMPLETED.equals(request.getStatus()) && request.getResult() == null) {
             throw new InvalidRequestException(  
                     "result",  
                     "Result is required when match status is COMPLETED");  
         }  
   
         // Validate result is not provided when status is SCHEDULED  
-        if ("SCHEDULED".equals(request.getStatus()) && request.getResult() != null) {  
+        if (FIELD_SCHEDULED.equals(request.getStatus()) && request.getResult() != null) {
             throw new InvalidRequestException(  
                     "result",  
                     "Result should not be provided when match status is SCHEDULED");  
@@ -180,104 +186,104 @@ public class MatchService {
     public MatchResponse patchMatch(Integer id, @Valid MatchPatchRequest request) {  
         // Find existing match  
         Match existingMatch = matchRepository.findById(id)  
-                .orElseThrow(() -> new ResourceNotFoundException("Match", "id", id));  
-  
-        // Get current teams for validation  
-        Team currentFirstTeam = teamRepository.findById(existingMatch.getFirstTeam()).orElse(null);  
-        Team currentSecondTeam = teamRepository.findById(existingMatch.getSecondTeam()).orElse(null);  
-  
-        // Update venue if provided  
-        if (request.getVenue() != null && !request.getVenue().isBlank()) {  
-            existingMatch.setVenue(request.getVenue());  
-        }  
-  
-        // Update date if provided  
-        if (request.getDate() != null) {  
-            existingMatch.setDate(request.getDate());  
-        }  
-  
-        // Update first team if provided  
-        if (request.getFirstTeamName() != null && !request.getFirstTeamName().isBlank()) {  
-            Team firstTeam = teamRepository.findByTeamNameIgnoreCase(request.getFirstTeamName())  
-                    .orElseThrow(() -> new InvalidRequestException(  
-                            "firstTeamName",  
-                            "Team not found with name: " + request.getFirstTeamName()));  
-  
-            // Validate not same as second team  
-            if (firstTeam.getId().equals(existingMatch.getSecondTeam())) {  
-                throw new InvalidRequestException(  
-                        "firstTeamName",  
-                        "First team and second team cannot be the same");  
-            }  
-  
-            existingMatch.setFirstTeam(firstTeam.getId());  
-            currentFirstTeam = firstTeam;  
-        }  
-  
-        // Update second team if provided  
-        if (request.getSecondTeamName() != null && !request.getSecondTeamName().isBlank()) {  
-            Team secondTeam = teamRepository.findByTeamNameIgnoreCase(request.getSecondTeamName())  
-                    .orElseThrow(() -> new InvalidRequestException(  
-                            "secondTeamName",  
-                            "Team not found with name: " + request.getSecondTeamName()));  
-  
-            // Validate not same as first team  
-            if (secondTeam.getId().equals(existingMatch.getFirstTeam())) {  
-                throw new InvalidRequestException(  
-                        "secondTeamName",  
-                        "First team and second team cannot be the same");  
-            }  
-  
-            existingMatch.setSecondTeam(secondTeam.getId());  
-            currentSecondTeam = secondTeam;  
-        }  
-  
-        // Update status if provided  
-        if (request.getStatus() != null && !request.getStatus().isBlank()) {  
-            // If changing to COMPLETED, result must be provided  
-            if ("COMPLETED".equals(request.getStatus()) &&  
-                    existingMatch.getResult() == null &&  
-                    request.getResult() == null) {  
-                throw new InvalidRequestException(  
-                        "result",  
-                        "Result is required when changing match status to COMPLETED");  
-            }  
-  
-            // If changing to SCHEDULED, clear result  
-            if ("SCHEDULED".equals(request.getStatus())) {  
-                existingMatch.setResult(null);  
-            }  
-  
-            existingMatch.setStatus(request.getStatus());  
-        }  
-  
-        // Update result if provided  
-        if (request.getResult() != null) {  
-            // Validate match is COMPLETED or being changed to COMPLETED  
-            String effectiveStatus = request.getStatus() != null ? request.getStatus() : existingMatch.getStatus();  
-            if (!"COMPLETED".equals(effectiveStatus)) {  
-                throw new InvalidRequestException(  
-                        "result",  
-                        "Result can only be set for COMPLETED matches");  
-            }  
-  
-            if (currentFirstTeam != null && currentSecondTeam != null) {  
-                Result result = buildResult(request.getResult(), currentFirstTeam, currentSecondTeam);  
-                existingMatch.setResult(result);  
-            }  
-        }  
+                .orElseThrow(() -> new ResourceNotFoundException(FIELD_MATCH, "id", id));
+
+        // Get current teams for validation
+        Team currentFirstTeam = teamRepository.findById(existingMatch.getFirstTeam()).orElse(null);
+        Team currentSecondTeam = teamRepository.findById(existingMatch.getSecondTeam()).orElse(null);
+
+        // Update venue if provided
+        if (request.getVenue() != null && !request.getVenue().isBlank()) {
+            existingMatch.setVenue(request.getVenue());
+        }
+
+        // Update date if provided
+        if (request.getDate() != null) {
+            existingMatch.setDate(request.getDate());
+        }
+
+        // Update first team if provided
+        if (request.getFirstTeamName() != null && !request.getFirstTeamName().isBlank()) {
+            Team firstTeam = teamRepository.findByTeamNameIgnoreCase(request.getFirstTeamName())
+                    .orElseThrow(() -> new InvalidRequestException(
+                            FIELD_FIRST_TEAM_NAME,
+                            FIELD_TEAM_NOT_FOUND_WITH_NAME + request.getFirstTeamName()));
+
+            // Validate not same as second team
+            if (firstTeam.getId().equals(existingMatch.getSecondTeam())) {
+                throw new InvalidRequestException(
+                        FIELD_FIRST_TEAM_NAME,
+                        "First team and second team cannot be the same");
+            }
+
+            existingMatch.setFirstTeam(firstTeam.getId());
+            currentFirstTeam = firstTeam;
+        }
+
+        // Update second team if provided
+        if (request.getSecondTeamName() != null && !request.getSecondTeamName().isBlank()) {
+            Team secondTeam = teamRepository.findByTeamNameIgnoreCase(request.getSecondTeamName())
+                    .orElseThrow(() -> new InvalidRequestException(
+                            FIELD_SECOND_TEAM_NAME,
+                            FIELD_TEAM_NOT_FOUND_WITH_NAME + request.getSecondTeamName()));
+
+            // Validate not same as first team
+            if (secondTeam.getId().equals(existingMatch.getFirstTeam())) {
+                throw new InvalidRequestException(
+                        FIELD_SECOND_TEAM_NAME,
+                        "First team and second team cannot be the same");
+            }
+
+            existingMatch.setSecondTeam(secondTeam.getId());
+            currentSecondTeam = secondTeam;
+        }
+
+        // Update status if provided
+        if (request.getStatus() != null && !request.getStatus().isBlank()) {
+            // If changing to COMPLETED, result must be provided
+            if (FIELD_COMPLETED.equals(request.getStatus()) &&
+                    existingMatch.getResult() == null &&
+                    request.getResult() == null) {
+                throw new InvalidRequestException(
+                        "result",
+                        "Result is required when changing match status to COMPLETED");
+            }
+
+            // If changing to SCHEDULED, clear result
+            if (FIELD_SCHEDULED.equals(request.getStatus())) {
+                existingMatch.setResult(null);
+            }
+
+            existingMatch.setStatus(request.getStatus());
+        }
+
+        // Update result if provided
+        if (request.getResult() != null) {
+            // Validate match is COMPLETED or being changed to COMPLETED
+            String effectiveStatus = request.getStatus() != null ? request.getStatus() : existingMatch.getStatus();
+            if (!FIELD_COMPLETED.equals(effectiveStatus)) {
+                throw new InvalidRequestException(
+                        "result",
+                        "Result can only be set for COMPLETED matches");
+            }
+
+            if (currentFirstTeam != null && currentSecondTeam != null) {
+                Result result = buildResult(request.getResult(), currentFirstTeam, currentSecondTeam);
+                existingMatch.setResult(result);
+            }
+        }
   
         Match updatedMatch = matchRepository.save(existingMatch);  
   
         return convertToResponse(updatedMatch);  
-    }  
-  
+    }
+
     /**  
      * Delete match  
      */  
     public MatchResponse deleteMatch(Integer id) {  
         Match existingMatch = matchRepository.findById(id)  
-                .orElseThrow(() -> new ResourceNotFoundException("Match", "id", id));  
+                .orElseThrow(() -> new ResourceNotFoundException(FIELD_MATCH, "id", id));
   
         // Convert to response before deleting  
         MatchResponse response = convertToResponse(existingMatch);  

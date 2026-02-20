@@ -2,6 +2,7 @@ package com.example.tournament_data.controller;
 
 import java.util.List;
 
+import com.example.tournament_data.dto.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -16,11 +17,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.example.tournament_data.dto.ApiResponse;
-import com.example.tournament_data.dto.TeamCreateRequest;
-import com.example.tournament_data.dto.TeamDetailsResponse;
-import com.example.tournament_data.dto.TeamPatchRequest;
-import com.example.tournament_data.dto.TeamResponse;
 import com.example.tournament_data.service.TeamService;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -80,6 +76,18 @@ public class TeamController {
 
                 ApiResponse<TeamDetailsResponse> response = ApiResponse.success(
                                 "Team details retrieved successfully", teamDetails);
+                return ResponseEntity.ok(response);
+        }
+
+        @Operation(summary = "Get count of each role in the team", description = "Retrieves the count of batsman, bowler, all-rounder and wicket-keeper in the team using MongoDB aggregation")
+        @GetMapping("/{id}/role-count")
+        public ResponseEntity<ApiResponse<List<RoleCount>>> getRoleCount(@Parameter(description = "Team ID", required = true, example = "1") @PathVariable Integer id) {
+
+                logger.info("GET /api/v1/teams/{}/role-count - Fetching count of each role in the team", id);
+
+                List<RoleCount> roleCounts = teamService.getRoleCount(id);
+
+                ApiResponse<List<RoleCount>> response = ApiResponse.success("Role count retrieved successfully", roleCounts);
                 return ResponseEntity.ok(response);
         }
 
